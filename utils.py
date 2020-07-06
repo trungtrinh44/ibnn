@@ -51,7 +51,6 @@ def plot_calibration_curve(y_true, y_prob, n_classes, nrows, ncols, save_path=No
     plt.tight_layout()
     if save_path is not None:
         plt.savefig(save_path)
-    plt.show()
     return fp, mv
 
 
@@ -75,4 +74,3 @@ def plot_auc(y_true, y_prob, n_classes, nrows, ncols, save_path=None):
     plt.tight_layout()
     if save_path is not None:
         plt.savefig(save_path)
-    plt.show()

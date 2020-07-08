@@ -67,7 +67,8 @@ class StochasticLinear(nn.Module):
         return D.Normal(self.posterior_params['mean'], self.posterior_params['logstd'].exp())
 
     def kl(self):
-        return D.kl_divergence(self.posterior(), self.prior()).mean()
+        prior = D.Normal(self.prior_params['mean'].detach(), self.prior_params['logstd'].detach().exp())
+        return D.kl_divergence(self.posterior(), prior).mean()
 
     def weight_norm(self):
         return torch.norm(self.fz.weight, p=self._p)/self._fzws
@@ -131,7 +132,8 @@ class StochasticConv2d(nn.Conv2d):
         return D.Normal(self.posterior_params['mean'], self.posterior_params['logstd'].exp())
 
     def kl(self):
-        return D.kl_divergence(self.posterior(), self.prior()).mean()
+        prior = D.Normal(self.prior_params['mean'].detach(), self.prior_params['logstd'].detach().exp())
+        return D.kl_divergence(self.posterior(), prior).mean()
     
     def weight_norm(self):
         return torch.norm(self.fz.weight, p=self._p)/self._fzws

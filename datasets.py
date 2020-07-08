@@ -5,6 +5,12 @@ import numpy as np
 from torch.utils.data import DataLoader, Subset
 
 
+def infinite_wrapper(loader):
+    while True:
+        for x in loader:
+            yield x
+
+
 def get_data_loader(dataset, batch_size=64, validation=False, validation_fraction=0.1, random_state=42, root_dir='data/'):
     if dataset == 'mnist':
         train_data = torchvision.datasets.MNIST(root_dir, train=True, download=True,

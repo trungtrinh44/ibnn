@@ -177,8 +177,63 @@ def main(_run, model_type, num_train_sample, num_test_sample, device, validate_f
                 if y_miss.sum().item() > 0:
                     by_miss = by[y_miss]
                     bx_miss = bx[y_miss]
-                    nll_miss += model.negative_loglikelihood(bx_miss, by_miss, 200).item() * len(by_miss)
-                acc += (pred == by).sum()
+                    nll_miss += model.negative_loglikelihood(bx_miss, by_miss, num_test_sample).item() * len(by_miss)
+                acc += (pred == by).sum().item()
+        nll_miss /= len(test_loader.dataset) - acc
+        test_nll /= len(test_loader.dataset)
+        acc /= len(test_loader.dataset)
+        logger.info("Test data: acc %.4f, nll %.4f, nll miss %.4f", acc, test_nll, nll_miss)
+    else:
+        model.train()
+        best_nll = float('inf')
+        for i, (bx, by) in enumerate(train_loader, 1):
+            if i > vb_iteration:
+                break
+            optimizer.zero_grad()
+            bx = bx.to(device)
+            by = by.to(device)
+            pred = model(bx)
+            loss = torch.nn.functional.nll_loss(pred, by)
+            loss.backward()
+            optimizer.step()
+            ex.log_scalar("nll.train", loss.item(), i)
+            if i % logging_freq == 0:
+                logger.info("Epoch %d: train %.4f", i, loss.item())
+            if i % validate_freq == 0:
+                model.eval()
+                with torch.no_grad():
+                    nll = 0
+                    for bx, by in valid_loader:
+                        bx = bx.to(device)
+                        by = by.to(device)
+                        pred = model(bx)
+                        nll += torch.nn.functional.nll_loss(pred, by).item() * len(by)
+                    nll /= len(valid_loader.dataset)
+                if best_nll >= nll:
+                    best_nll = nll
+                    torch.save(model.state_dict(), checkpoint_dir)
+                    logger.info('Save checkpoint')
+                ex.log_scalar('nll.valid', nll, i)
+                logger.info("Epoch %d: validation %.4f", i, nll)
+                model.train()
+        model.load_state_dict(torch.load(checkpoint_dir, map_location=device))
+        test_nll = 0
+        acc = 0
+        nll_miss = 0
+        model.eval()
+        with torch.no_grad():
+            for bx, by in test_loader:
+                bx = bx.to(device)
+                by = by.to(device)
+                prob = model(bx)
+                pred = prob.argmax(dim=1)
+                test_nll += torch.nn.functional.nll_loss(prob, by).item() * len(by)
+                y_miss = pred != by
+                if y_miss.sum().item() > 0:
+                    prob_miss = prob[y_miss]
+                    by_miss = by[y_miss]
+                    nll_miss += torch.nn.functional.nll_loss(prob_miss, by_miss).item() * len(by_miss)
+                acc += (pred == by).sum().item()
         nll_miss /= len(test_loader.dataset) - acc
         test_nll /= len(test_loader.dataset)
         acc /= len(test_loader.dataset)

@@ -102,6 +102,24 @@ def main(_run, model_type, num_train_sample, num_test_sample, device, validate_f
             ex.log_scalar('mll.train', mll.item(), i)
             if i % logging_freq == 0:
                 logger.info("MLL Epoch %d: train %.4f", i, mll)
+            if i % validate_freq == 0:
+                model.eval()
+                with torch.no_grad():
+                    mll = 0
+                    for bx, by in valid_loader:
+                        bx = bx.to(device)
+                        by = by.to(device)
+                        mll += model.marginal_loglikelihood_loss(
+                            bx, by, num_test_sample).item() * len(by)
+                    mll /= len(valid_loader.dataset)
+                if best_mll >= mll:
+                    best_mll = mll
+                    torch.save(model.state_dict(), checkpoint_dir)
+                    logger.info('Save checkpoint')
+                ex.log_scalar('mll.valid', mll, i)
+                logger.info("MLL Epoch %d: validation %.4f", i, mll)
+                model.train()
+        model.load_state_dict(torch.load(checkpoint_dir, map_location=device))
     # Second train using VB
         vb_iteration += mll_iteration
         best_nll = float('inf')

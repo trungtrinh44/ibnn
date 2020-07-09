@@ -119,7 +119,8 @@ def main(_run, model_type, num_train_sample, num_test_sample, device, validate_f
                 ex.log_scalar('mll.valid', mll, i)
                 logger.info("MLL Epoch %d: validation %.4f", i, mll)
                 model.train()
-        model.load_state_dict(torch.load(checkpoint_dir, map_location=device))
+        if os.path.exists(checkpoint_dir):
+            model.load_state_dict(torch.load(checkpoint_dir, map_location=device))
     # Second train using VB
         vb_iteration += mll_iteration
         best_nll = float('inf')

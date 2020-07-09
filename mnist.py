@@ -21,7 +21,8 @@ def my_config():
     seed = 1
     p = 0.75
     model_type = 'stochastic'
-    kl_weight = 5
+    kl_weight = 5.0
+    wn_weight = 1.0
     batch_size = 128
     conv_hiddens = [10, 20]
     fc_hidden = 50
@@ -75,7 +76,7 @@ def get_logger(_run, _log):
 
 
 @ex.automain
-def main(_run, model_type, num_train_sample, num_test_sample, device, validate_freq, mll_iteration, vb_iteration, logging_freq, kl_weight):
+def main(_run, model_type, num_train_sample, num_test_sample, device, validate_freq, mll_iteration, vb_iteration, logging_freq, kl_weight, wn_weight):
     logger = get_logger()
     train_loader, valid_loader, test_loader = get_dataloader()
     logger.info(
@@ -131,7 +132,7 @@ def main(_run, model_type, num_train_sample, num_test_sample, device, validate_f
             by = by.to(device)
             optimizer.zero_grad()
             loglike, kl, wn = model.vb_loss(bx, by, num_train_sample)
-            loss = loglike + kl_weight*kl - wn
+            loss = loglike + kl_weight*kl - wn_weight*wn
             loss.backward()
             optimizer.step()
             ex.log_scalar('loglike.train', loglike.item(), i)

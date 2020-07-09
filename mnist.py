@@ -29,7 +29,8 @@ def my_config():
     init_mean = 0.0
     init_log_std = -2.3
     weight_decay = 0.0
-    lr = 1e-3
+    lr = 1e-4
+    lr_weight = 1e-3
     mll_iteration = 8000
     vb_iteration = 9000
     noise_type = 'full'
@@ -47,16 +48,23 @@ def my_config():
         device = 'cpu'
 
 @ex.capture
-def get_model(model_type, conv_hiddens, fc_hidden, init_method, activation, init_mean, init_log_std, p, noise_type, noise_size, lr, weight_decay, device):
+def get_model(model_type, conv_hiddens, fc_hidden, init_method, activation, init_mean, init_log_std, p, noise_type, noise_size, lr, lr_weight, weight_decay, device):
     if model_type == 'stochastic':
         model = StochasticLeNet(28, 28, 1, conv_hiddens, fc_hidden, 10, init_method,
                                 activation, init_mean, init_log_std, p, noise_type, noise_size)
+        optimizer = torch.optim.AdamW([
+            {
+                'params': model.parameters(), 'lr': lr
+            }, {
+                'params': model.weight_params(), 'lr': lr_weight
+            }
+        ], lr=lr, weight_decay=weight_decay)
     else:
         model = DeterministicLeNet(
             28, 28, 1, conv_hiddens, fc_hidden, 10, init_method, activation)
+        optimizer = torch.optim.AdamW(
+            model.parameters(), lr=lr, weight_decay=weight_decay)
     model.to(device)
-    optimizer = torch.optim.AdamW(
-        model.parameters(), lr=lr, weight_decay=weight_decay)
     return model, optimizer
 
 
@@ -132,7 +140,7 @@ def main(_run, model_type, num_train_sample, num_test_sample, device, validate_f
             by = by.to(device)
             optimizer.zero_grad()
             loglike, kl, wn = model.vb_loss(bx, by, num_train_sample)
-            loss = loglike + kl_weight*kl - wn_weight*wn
+            loss = loglike + kl_weight*kl - wn
             loss.backward()
             optimizer.step()
             ex.log_scalar('loglike.train', loglike.item(), i)

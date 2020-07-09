@@ -17,6 +17,9 @@ class RegressionMLP(nn.Module):
         )
         self.likelihood_logstd = nn.Parameter(torch.zeros(()), requires_grad=False)
 
+    def weight_params(self):
+        return self.first.weight_params()
+
     def prior(self):
         return self.first.prior()
 

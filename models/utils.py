@@ -3,7 +3,7 @@ import torch
 import torch.distributions as D
 import torch.nn as nn
 import torch.nn.functional as F
-
+from itertools import chain
 
 def swish(x):
     return x*torch.sigmoid(x)
@@ -65,6 +65,14 @@ class StochasticLinear(nn.Module):
         })
         self._p = torch.tensor(p, dtype=torch.float32)
         self._fzws = np.prod(self.fz.weight.shape)
+    
+    def parameters(self):
+        return chain.from_iterable([
+            self.fx.parameters(), self.prior_params.parameters(), self.posterior_params.parameters()
+        ])
+
+    def weight_params(self):
+        return self.fz.parameters()
 
     def prior(self):
         return D.Normal(self.prior_params['mean'], self.prior_params['logstd'].exp())
@@ -137,6 +145,14 @@ class StochasticConv2d(nn.Conv2d):
         self._p = torch.tensor(p, dtype=torch.float32)
         self._fzws = np.prod(self.fz.weight.shape)
     
+    def parameters(self):
+        return chain.from_iterable([
+            self.fx.parameters(), self.prior_params.parameters(), self.posterior_params.parameters()
+        ])
+
+    def weight_params(self):
+        return self.fz.parameters()
+
     def prior(self):
         return D.Normal(self.prior_params['mean'], self.prior_params['logstd'].exp())
 

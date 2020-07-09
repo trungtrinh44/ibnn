@@ -74,6 +74,9 @@ class StochasticLeNet(nn.Module):
         self.fc2 = Linear(n_hidden, n_output,
                           init_method=init_method, activation='linear')
 
+    def weight_params(self):
+        return self.conv1.weight_params()
+    
     def prior(self):
         return self.conv1.prior()
 

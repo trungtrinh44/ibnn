@@ -141,12 +141,12 @@ class StochasticConv2d(nn.Conv2d):
             self.__noise_transform = lambda z: F.conv2d(z, self.fz.weight.abs(), None, stride, padding, dilation, groups)
         elif noise_type == 'partial':
             self.prior_params = nn.ParameterDict({
-                'mean': nn.Parameter(torch.full(noise_features, init_mean, dtype=torch.float32), requires_grad=False),
-                'logstd': nn.Parameter(torch.full(noise_features, init_log_std, dtype=torch.float32), requires_grad=True)
+                'mean': nn.Parameter(torch.full([noise_features], init_mean, dtype=torch.float32), requires_grad=False),
+                'logstd': nn.Parameter(torch.full([noise_features], init_log_std, dtype=torch.float32), requires_grad=True)
             })
             self.posterior_params = nn.ParameterDict({
-                'mean': nn.Parameter(torch.full(noise_features, init_mean, dtype=torch.float32), requires_grad=True),
-                'logstd': nn.Parameter(torch.full(noise_features, init_log_std, dtype=torch.float32), requires_grad=True)
+                'mean': nn.Parameter(torch.full([noise_features], init_mean, dtype=torch.float32), requires_grad=True),
+                'logstd': nn.Parameter(torch.full([noise_features], init_log_std, dtype=torch.float32), requires_grad=True)
             })
             self.fz = Linear(noise_features, out_width*out_height, False, init_method, activation)
             self.__noise_transform = lambda z: F.linear(z, self.fz.weight.abs()).reshape((-1, 1, out_height, out_width))

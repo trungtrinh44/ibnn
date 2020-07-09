@@ -4,6 +4,7 @@ import torch.distributions as D
 import torch.nn as nn
 import torch.nn.functional as F
 from .utils import *
+from itertools import chain
 
 class RegressionMLP(nn.Module):
     def __init__(self, n_input, n_output, n_hiddens, n_z, p=2/3, activation='relu', init_mean=0.0, init_log_std=np.log(0.1), init_method='normal'):
@@ -16,6 +17,11 @@ class RegressionMLP(nn.Module):
             Linear(n_hiddens[-1], n_output, True, init_method, 'linear')
         )
         self.likelihood_logstd = nn.Parameter(torch.zeros(()), requires_grad=False)
+
+    def parameters(self):
+        return chain.from_iterable([
+            self.first.parameters(), self.layers.parameters()
+        ])
 
     def weight_params(self):
         return self.first.weight_params()

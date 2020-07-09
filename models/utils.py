@@ -33,7 +33,7 @@ def get_dimension_size_conv(input_size, padding, stride, kernel):
 
 
 class Linear(nn.Linear):
-    def __init__(self, in_features: int, out_features: int, bias: bool = True, init_method='normal': bool = True, activation='relu'):
+    def __init__(self, in_features: int, out_features: int, bias: bool = True, init_method='normal', activation='relu'):
         super(Linear, self).__init__(in_features, out_features, bias)
         if init_method=='orthogonal':
             nn.init.orthogonal_(
@@ -49,7 +49,7 @@ class Linear(nn.Linear):
 class StochasticLinear(nn.Module):
     def __init__(self, in_features: int, noise_features: int, out_features: int, bias: bool = True,
                  init_mean=0.0, init_log_std=0.0, p=3/4,
-                 init_method='normal': bool = True, activation='relu'):
+                 init_method='normal', activation='relu'):
         super(StochasticLinear, self).__init__()
         self.fx = Linear(in_features, out_features, bias,
                          init_method, activation)

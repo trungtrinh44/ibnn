@@ -6,14 +6,14 @@ import torch.nn.functional as F
 from .utils import *
 
 class RegressionMLP(nn.Module):
-    def __init__(self, n_input, n_output, n_hiddens, n_z, p=2/3, activation='relu', init_mean=0.0, init_log_std=np.log(0.1), orthogonal_init=True):
+    def __init__(self, n_input, n_output, n_hiddens, n_z, p=2/3, activation='relu', init_mean=0.0, init_log_std=np.log(0.1), init_method='normal'):
         super(RegressionMLP, self).__init__()
-        self.first = StochasticLinear(n_input, n_z, n_hiddens[0], True, init_mean, init_log_std, p, orthogonal_init, activation)
+        self.first = StochasticLinear(n_input, n_z, n_hiddens[0], True, init_mean, init_log_std, p, init_method, activation)
         self.act = get_activation(activation)
         self.layers = nn.Sequential(
-            *(nn.Sequential(Linear(isize, osize, True, orthogonal_init, activation), get_activation(activation))
+            *(nn.Sequential(Linear(isize, osize, True, init_method, activation), get_activation(activation))
               for isize, osize in zip(n_hiddens[:-1], n_hiddens[1:])),
-            Linear(n_hiddens[-1], n_output, True, orthogonal_init, 'linear')
+            Linear(n_hiddens[-1], n_output, True, init_method, 'linear')
         )
         self.likelihood_logstd = nn.Parameter(torch.zeros(()), requires_grad=False)
 

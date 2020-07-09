@@ -33,22 +33,28 @@ def get_dimension_size_conv(input_size, padding, stride, kernel):
 
 
 class Linear(nn.Linear):
-    def __init__(self, in_features: int, out_features: int, bias: bool = True, orthogonal_init: bool = True, activation='relu'):
+    def __init__(self, in_features: int, out_features: int, bias: bool = True, init_method='normal': bool = True, activation='relu'):
         super(Linear, self).__init__(in_features, out_features, bias)
-        if orthogonal_init:
+        if init_method=='orthogonal':
             nn.init.orthogonal_(
                 self.weight, nn.init.calculate_gain(activation))
+            if bias:
+                nn.init.constant_(self.bias, 0.0)
+        elif init_method=='normal':
+            nn.init.normal_(self.weight, mean=0.0, std=0.1)
+            if bias:
+                nn.init.constant_(self.bias, 0.1)
 
 
 class StochasticLinear(nn.Module):
     def __init__(self, in_features: int, noise_features: int, out_features: int, bias: bool = True,
                  init_mean=0.0, init_log_std=0.0, p=3/4,
-                 orthogonal_init: bool = True, activation='relu'):
+                 init_method='normal': bool = True, activation='relu'):
         super(StochasticLinear, self).__init__()
         self.fx = Linear(in_features, out_features, bias,
-                         orthogonal_init, activation)
+                         init_method, activation)
         self.fz = Linear(noise_features, out_features,
-                         False, orthogonal_init, activation)
+                         False, init_method, activation)
         self.prior_params = nn.ParameterDict({
             'mean': nn.Parameter(torch.full((noise_features,), init_mean, dtype=torch.float32), requires_grad=False),
             'logstd': nn.Parameter(torch.full((noise_features,), init_log_std, dtype=torch.float32), requires_grad=True)
@@ -86,17 +92,23 @@ class StochasticLinear(nn.Module):
 
 class Conv2d(nn.Conv2d):
     def __init__(self, in_channels, out_channels, kernel_size, stride=1,
-                 padding=0, dilation=1, groups=1, bias=True, padding_mode='zeros', orthogonal_init=False, activation='relu'):
+                 padding=0, dilation=1, groups=1, bias=True, padding_mode='zeros', init_method='normal', activation='relu'):
         super(Conv2d, self).__init__(in_channels, out_channels, kernel_size, stride=1,
                                      padding=0, dilation=1, groups=1, bias=True, padding_mode='zeros')
-        if orthogonal_init:
+        if init_method=='orthogonal':
             nn.init.orthogonal_(
                 self.weight, nn.init.calculate_gain(activation))
+            if bias:
+                nn.init.constant_(self.bias, 0.0)
+        elif init_method=='normal':
+            nn.init.normal_(self.weight, mean=0.0, std=0.1)
+            if bias:
+                nn.init.constant_(self.bias, 0.1)
 
 
 class StochasticConv2d(nn.Conv2d):
     def __init__(self, width, height, in_channels, out_channels, kernel_size, stride=1,
-                 padding=0, dilation=1, groups=1, bias=True, padding_mode='zeros', orthogonal_init=False, activation='relu',
+                 padding=0, dilation=1, groups=1, bias=True, padding_mode='zeros', init_method='normal', activation='relu',
                  init_mean=0.0, init_log_std=0.0, p=3/4, noise_type='full', noise_features=None):
         super(StochasticConv2d, self).__init__(in_channels, out_channels, kernel_size, stride=1,
                                                padding=0, dilation=1, groups=1,
@@ -106,10 +118,10 @@ class StochasticConv2d(nn.Conv2d):
         out_height = get_dimension_size_conv(
             height, padding, stride, kernel_size)
         self.fx = Conv2d(in_channels, out_channels, kernel_size, stride, padding,
-                         dilation, groups, bias, padding_mode, orthogonal_init, activation)
+                         dilation, groups, bias, padding_mode, init_method, activation)
         if noise_type == 'full':
             self.fz = Conv2d(1, out_channels, kernel_size, stride, padding,
-                             dilation, groups, False, padding_mode, orthogonal_init, activation)
+                             dilation, groups, False, padding_mode, init_method, activation)
             self.prior_params = nn.ParameterDict({
                 'mean': nn.Parameter(torch.full([height, width], init_mean, dtype=torch.float32), requires_grad=False),
                 'logstd': nn.Parameter(torch.full([height, width], init_log_std, dtype=torch.float32), requires_grad=True)

@@ -6,10 +6,10 @@ from .utils import *
 
 
 class DeterministicLeNet(nn.Module):
-    def __init__(self, width, height, in_channel, n_channels, n_hidden, n_output=10, orthogonal_init=False, activation='relu'):
+    def __init__(self, width, height, in_channel, n_channels, n_hidden, n_output=10, init_method=False, activation='relu'):
         super(DeterministicLeNet, self).__init__()
         self.conv1 = Conv2d(in_channel, n_channels[0], kernel_size=5,
-                            orthogonal_init=orthogonal_init, activation=activation)
+                            init_method=init_method, activation=activation)
         self.act1 = get_activation(activation)
         width = get_dimension_size_conv(width, 0, 1, 5)
         height = get_dimension_size_conv(height, 0, 1, 5)
@@ -17,7 +17,7 @@ class DeterministicLeNet(nn.Module):
         width = get_dimension_size_conv(width, 0, 2, 2)
         height = get_dimension_size_conv(height, 0, 2, 2)
         self.conv2 = Conv2d(n_channels[0], n_channels[1], kernel_size=5,
-                            orthogonal_init=orthogonal_init, activation=activation)
+                            init_method=init_method, activation=activation)
         self.act2 = get_activation(activation)
         width = get_dimension_size_conv(width, 0, 1, 5)
         height = get_dimension_size_conv(height, 0, 1, 5)
@@ -25,10 +25,10 @@ class DeterministicLeNet(nn.Module):
         width = get_dimension_size_conv(width, 0, 2, 2)
         height = get_dimension_size_conv(height, 0, 2, 2)
         self.fc1 = Linear(n_channels[1]*width*height, n_hidden,
-                          orthogonal_init=orthogonal_init, activation=activation)
+                          init_method=init_method, activation=activation)
         self.act3 = get_activation(activation)
         self.fc2 = Linear(n_hidden, n_output,
-                          orthogonal_init=orthogonal_init, activation='linear')
+                          init_method=init_method, activation='linear')
 
     def forward(self, x):
         bs = x.size(0)
@@ -48,11 +48,11 @@ class DeterministicLeNet(nn.Module):
 
 
 class StochasticLeNet(nn.Module):
-    def __init__(self, width, height, in_channel, n_channels, n_hidden, n_output=10, orthogonal_init=False, activation='relu',
+    def __init__(self, width, height, in_channel, n_channels, n_hidden, n_output=10, init_method='normal', activation='relu',
                  init_mean=0.0, init_log_std=np.log(0.1), p=3/4, noise_type='full', noise_features=None):
         super(StochasticLeNet, self).__init__()
         self.conv1 = StochasticConv2d(width, height, in_channel, n_channels[0], kernel_size=5,
-                                      orthogonal_init=orthogonal_init, activation=activation,
+                                      init_method=init_method, activation=activation,
                                       init_mean=0.0, init_log_std=0.0, p=3/4, noise_type='full', noise_features=None)
         self.act1 = get_activation(activation)
         width = get_dimension_size_conv(width, 0, 1, 5)
@@ -61,7 +61,7 @@ class StochasticLeNet(nn.Module):
         width = get_dimension_size_conv(width, 0, 2, 2)
         height = get_dimension_size_conv(height, 0, 2, 2)
         self.conv2 = Conv2d(n_channels[0], n_channels[1], kernel_size=5,
-                            orthogonal_init=orthogonal_init, activation=activation)
+                            init_method=init_method, activation=activation)
         self.act2 = get_activation(activation)
         width = get_dimension_size_conv(width, 0, 1, 5)
         height = get_dimension_size_conv(height, 0, 1, 5)
@@ -69,10 +69,10 @@ class StochasticLeNet(nn.Module):
         width = get_dimension_size_conv(width, 0, 2, 2)
         height = get_dimension_size_conv(height, 0, 2, 2)
         self.fc1 = Linear(n_channels[1]*width*height, n_hidden,
-                          orthogonal_init=orthogonal_init, activation=activation)
+                          init_method=init_method, activation=activation)
         self.act3 = get_activation(activation)
         self.fc2 = Linear(n_hidden, n_output,
-                          orthogonal_init=orthogonal_init, activation='linear')
+                          init_method=init_method, activation='linear')
 
     def prior(self):
         return self.conv1.prior()

@@ -33,7 +33,7 @@ def my_config():
     vb_iteration = 9000
     noise_type = 'full'
     noise_size = [28, 28]
-    orthogonal_init = False
+    init_method = 'normal'
     activation = 'relu'
     validation = True
     validation_fraction = 0.2
@@ -46,13 +46,13 @@ def my_config():
         device = 'cpu'
 
 @ex.capture
-def get_model(model_type, conv_hiddens, fc_hidden, orthogonal_init, activation, init_mean, init_log_std, p, noise_type, noise_size, lr, weight_decay, device):
+def get_model(model_type, conv_hiddens, fc_hidden, init_method, activation, init_mean, init_log_std, p, noise_type, noise_size, lr, weight_decay, device):
     if model_type == 'stochastic':
-        model = StochasticLeNet(28, 28, 1, conv_hiddens, fc_hidden, 10, orthogonal_init,
+        model = StochasticLeNet(28, 28, 1, conv_hiddens, fc_hidden, 10, init_method,
                                 activation, init_mean, init_log_std, p, noise_type, noise_size)
     else:
         model = DeterministicLeNet(
-            28, 28, 1, conv_hiddens, fc_hidden, 10, orthogonal_init, activation)
+            28, 28, 1, conv_hiddens, fc_hidden, 10, init_method, activation)
     model.to(device)
     optimizer = torch.optim.AdamW(
         model.parameters(), lr=lr, weight_decay=weight_decay)

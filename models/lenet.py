@@ -53,7 +53,7 @@ class StochasticLeNet(nn.Module):
         super(StochasticLeNet, self).__init__()
         self.conv1 = StochasticConv2d(width, height, in_channel, n_channels[0], kernel_size=5,
                                       init_method=init_method, activation=activation,
-                                      init_mean=0.0, init_log_std=0.0, p=3/4, noise_type='full', noise_features=None)
+                                      init_mean=init_mean, init_log_std=init_log_std, p=p, noise_type=noise_type, noise_features=noise_features)
         self.act1 = get_activation(activation)
         width = get_dimension_size_conv(width, 0, 1, 5)
         height = get_dimension_size_conv(height, 0, 1, 5)

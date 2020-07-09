@@ -77,7 +77,7 @@ class StochasticLeNet(nn.Module):
     def weight_params(self):
         return self.conv1.weight_params()
     
-    def parameters():
+    def parameters(self):
         return chain.from_iterable([
             self.conv1.parameters(), self.conv2.parameters(), self.fc1.parameters(), self.fc2.parameters()
         ])

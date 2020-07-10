@@ -187,7 +187,7 @@ def main(_run, model_type, num_train_sample, num_test_sample, device, validate_f
                 logger.info("VB Epoch %d: test NLL %.4f", i, nll)
                 model.train()
         model.load_state_dict(torch.load(checkpoint_dir, map_location=device))
-        test_nll = 0
+        tnll = 0
         acc = 0
         nll_miss = 0
         model.eval()
@@ -196,7 +196,7 @@ def main(_run, model_type, num_train_sample, num_test_sample, device, validate_f
                 bx = bx.to(device)
                 by = by.to(device)
                 prob = model(bx, num_test_sample)
-                test_nll += model.negative_loglikelihood(
+                tnll += model.negative_loglikelihood(
                     bx, by, num_test_sample).item() * len(by)
                 vote = prob.argmax(2)
                 onehot = torch.zeros(
@@ -214,10 +214,10 @@ def main(_run, model_type, num_train_sample, num_test_sample, device, validate_f
                         bx_miss, by_miss, num_test_sample).item() * len(by_miss)
                 acc += (pred == by).sum().item()
         nll_miss /= len(test_loader.dataset) - acc
-        test_nll /= len(test_loader.dataset)
+        tnll /= len(test_loader.dataset)
         acc /= len(test_loader.dataset)
         logger.info("Test data: acc %.4f, nll %.4f, nll miss %.4f",
-                    acc, test_nll, nll_miss)
+                    acc, tnll, nll_miss)
     else:
         model.train()
         best_nll = float('inf')
@@ -253,7 +253,7 @@ def main(_run, model_type, num_train_sample, num_test_sample, device, validate_f
                 logger.info("Epoch %d: validation %.4f", i, nll)
                 model.train()
         model.load_state_dict(torch.load(checkpoint_dir, map_location=device))
-        test_nll = 0
+        tnll = 0
         acc = 0
         nll_miss = 0
         model.eval()
@@ -263,7 +263,7 @@ def main(_run, model_type, num_train_sample, num_test_sample, device, validate_f
                 by = by.to(device)
                 prob = model(bx)
                 pred = prob.argmax(dim=1)
-                test_nll += torch.nn.functional.nll_loss(
+                tnll += torch.nn.functional.nll_loss(
                     prob, by).item() * len(by)
                 y_miss = pred != by
                 if y_miss.sum().item() > 0:
@@ -273,7 +273,7 @@ def main(_run, model_type, num_train_sample, num_test_sample, device, validate_f
                         prob_miss, by_miss).item() * len(by_miss)
                 acc += (pred == by).sum().item()
         nll_miss /= len(test_loader.dataset) - acc
-        test_nll /= len(test_loader.dataset)
+        tnll /= len(test_loader.dataset)
         acc /= len(test_loader.dataset)
         logger.info("Test data: acc %.4f, nll %.4f, nll miss %.4f",
-                    acc, test_nll, nll_miss)
+                    acc, tnll, nll_miss)

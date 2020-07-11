@@ -114,13 +114,11 @@ class Conv2d(nn.Conv2d):
                 nn.init.constant_(self.bias, 0.1)
 
 
-class StochasticConv2d(nn.Conv2d):
+class StochasticConv2d(nn.Module):
     def __init__(self, width, height, in_channels, out_channels, kernel_size, stride=1,
                  padding=0, dilation=1, groups=1, bias=True, padding_mode='zeros', init_method='normal', activation='relu',
                  init_mean=0.0, init_log_std=0.0, p=3/4, noise_type='full', noise_features=None):
-        super(StochasticConv2d, self).__init__(in_channels, out_channels, kernel_size, stride=1,
-                                               padding=0, dilation=1, groups=1,
-                                               bias=True, padding_mode='zeros')
+        super(StochasticConv2d, self).__init__()
         out_width = get_dimension_size_conv(
             width, padding, stride, kernel_size)
         out_height = get_dimension_size_conv(

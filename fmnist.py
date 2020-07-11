@@ -147,6 +147,7 @@ def main(_run, model_type, num_train_sample, num_test_sample, device, validate_f
             model.load_state_dict(torch.load(
                 checkpoint_dir, map_location=device))
     # Second train using VB
+        g_target = torch.tensor(g_target, device=torch.float32).to(device)
         vb_iteration += mll_iteration
         best_nll = float('inf')
         for i, (bx, by) in train_iter:

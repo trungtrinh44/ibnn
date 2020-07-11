@@ -50,7 +50,7 @@ def my_config():
 def get_model(model_type, conv_hiddens, fc_hidden, init_method, activation, init_mean, init_log_std, noise_type, noise_size, lr, weight_decay, device):
     if model_type == 'stochastic':
         model = StochasticLeNet(28, 28, 1, conv_hiddens, fc_hidden, 10, init_method,
-                                activation, init_mean, init_log_std, p, noise_type, noise_size)
+                                activation, init_mean, init_log_std, noise_type, noise_size)
     else:
         model = DeterministicLeNet(
             28, 28, 1, conv_hiddens, fc_hidden, 10, init_method, activation)

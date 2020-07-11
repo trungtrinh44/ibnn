@@ -156,7 +156,7 @@ def main(_run, model_type, num_train_sample, num_test_sample, device, validate_f
             by = by.to(device)
             optimizer.zero_grad()
             loglike, kl, g = model.vb_loss(bx, by, num_train_sample)
-            loss = loglike + kl_weight*kl + torch.nn.functional.smooth_l1_loss(g_target - g)
+            loss = loglike + kl_weight*kl + torch.nn.functional.smooth_l1_loss(g, g_target)
             loss.backward()
             optimizer.step()
             ex.log_scalar('loglike.train', loglike.item(), i)

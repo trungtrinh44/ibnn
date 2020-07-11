@@ -109,6 +109,7 @@ def main(_run, model_type, num_train_sample, num_test_sample, device, validate_f
     train_loader, valid_loader, test_loader = get_dataloader()
     logger.info(
         f"Train size: {len(train_loader.dataset)}, validation size: {len(valid_loader.dataset)}, test size: {len(test_loader.dataset)}")
+    n_batch = len(train_loader)
     train_loader = infinite_wrapper(train_loader)
     model, optimizer = get_model()
     logger.info(str(model))
@@ -156,7 +157,7 @@ def main(_run, model_type, num_train_sample, num_test_sample, device, validate_f
             by = by.to(device)
             optimizer.zero_grad()
             loglike, kl, g = model.vb_loss(bx, by, num_train_sample)
-            loss = loglike + kl_weight*kl + torch.nn.functional.relu(g_max - g)
+            loss = loglike + kl_weight*kl/n_batch + torch.nn.functional.relu(g_max - g)
             loss.backward()
             optimizer.step()
             ex.log_scalar('loglike.train', loglike.item(), i)

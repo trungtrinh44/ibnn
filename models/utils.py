@@ -5,6 +5,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from itertools import chain
 
+
 def swish(x):
     return x*torch.sigmoid(x)
 
@@ -35,12 +36,12 @@ def get_dimension_size_conv(input_size, padding, stride, kernel):
 class Linear(nn.Linear):
     def __init__(self, in_features: int, out_features: int, bias: bool = True, init_method='normal', activation='relu'):
         super(Linear, self).__init__(in_features, out_features, bias)
-        if init_method=='orthogonal':
+        if init_method == 'orthogonal':
             nn.init.orthogonal_(
                 self.weight, nn.init.calculate_gain(activation))
             if bias:
                 nn.init.constant_(self.bias, 0.0)
-        elif init_method=='normal':
+        elif init_method == 'normal':
             nn.init.normal_(self.weight, mean=0.0, std=0.1)
             if bias:
                 nn.init.constant_(self.bias, 0.1)
@@ -48,8 +49,7 @@ class Linear(nn.Linear):
 
 class StochasticLinear(nn.Module):
     def __init__(self, in_features: int, noise_features: int, out_features: int, bias: bool = True,
-                 init_mean=0.0, init_log_std=0.0, p=3/4,
-                 init_method='normal', activation='relu'):
+                 init_mean=0.0, init_log_std=0.0, init_method='normal', activation='relu'):
         super(StochasticLinear, self).__init__()
         self.fx = Linear(in_features, out_features, bias,
                          init_method, activation)
@@ -63,16 +63,6 @@ class StochasticLinear(nn.Module):
             'mean': nn.Parameter(torch.full((noise_features,), init_mean, dtype=torch.float32), requires_grad=True),
             'logstd': nn.Parameter(torch.full((noise_features,), init_log_std, dtype=torch.float32), requires_grad=True)
         })
-        self._p = torch.tensor(p, dtype=torch.float32)
-        self._fzws = np.prod(self.fz.weight.shape)
-    
-    def parameters(self):
-        return chain.from_iterable([
-            self.fx.parameters(), self.prior_params.parameters(), self.posterior_params.parameters()
-        ])
-
-    def weight_params(self):
-        return self.fz.parameters()
 
     def prior(self):
         return D.Normal(self.prior_params['mean'], self.prior_params['logstd'].exp())
@@ -81,11 +71,9 @@ class StochasticLinear(nn.Module):
         return D.Normal(self.posterior_params['mean'], self.posterior_params['logstd'].exp())
 
     def kl(self):
-        prior = D.Normal(self.prior_params['mean'].detach(), self.prior_params['logstd'].detach().exp())
+        prior = D.Normal(self.prior_params['mean'].detach(),
+                         self.prior_params['logstd'].detach().exp())
         return D.kl_divergence(self.posterior(), prior).mean()
-
-    def weight_norm(self):
-        return torch.norm(self.fz.weight, p=self._p)/self._fzws
 
     def forward(self, x, L, sample_prior=False):
         if sample_prior:
@@ -93,9 +81,9 @@ class StochasticLinear(nn.Module):
         else:
             dist = self.posterior()
         z = dist.rsample((1, L))
-        z = F.linear(z, self.fz.weight.abs())
-        x = self.fx(x).unsqueeze_(1) + z
-        return x
+        fz = F.linear(z, self.fz.weight.abs())
+        x = self.fx(x).unsqueeze_(1) + fz
+        return x, z
 
 
 class Conv2d(nn.Conv2d):
@@ -103,12 +91,12 @@ class Conv2d(nn.Conv2d):
                  padding=0, dilation=1, groups=1, bias=True, padding_mode='zeros', init_method='normal', activation='relu'):
         super(Conv2d, self).__init__(in_channels, out_channels, kernel_size, stride=1,
                                      padding=0, dilation=1, groups=1, bias=True, padding_mode='zeros')
-        if init_method=='orthogonal':
+        if init_method == 'orthogonal':
             nn.init.orthogonal_(
                 self.weight, nn.init.calculate_gain(activation))
             if bias:
                 nn.init.constant_(self.bias, 0.0)
-        elif init_method=='normal':
+        elif init_method == 'normal':
             nn.init.normal_(self.weight, mean=0.0, std=0.1)
             if bias:
                 nn.init.constant_(self.bias, 0.1)
@@ -136,7 +124,8 @@ class StochasticConv2d(nn.Module):
                 'mean': nn.Parameter(torch.full([height, width], init_mean, dtype=torch.float32), requires_grad=True),
                 'logstd': nn.Parameter(torch.full([height, width], init_log_std, dtype=torch.float32), requires_grad=True)
             })
-            self.__noise_transform = lambda z: F.conv2d(z, self.fz.weight.abs(), None, stride, padding, dilation, groups)
+            self.__noise_transform = lambda z: F.conv2d(
+                z, self.fz.weight.abs(), None, stride, padding, dilation, groups)
         elif noise_type == 'partial':
             self.prior_params = nn.ParameterDict({
                 'mean': nn.Parameter(torch.full([noise_features], init_mean, dtype=torch.float32), requires_grad=False),
@@ -146,21 +135,13 @@ class StochasticConv2d(nn.Module):
                 'mean': nn.Parameter(torch.full([noise_features], init_mean, dtype=torch.float32), requires_grad=True),
                 'logstd': nn.Parameter(torch.full([noise_features], init_log_std, dtype=torch.float32), requires_grad=True)
             })
-            self.fz = Linear(noise_features, out_width*out_height, False, init_method, activation)
-            self.__noise_transform = lambda z: F.linear(z, self.fz.weight.abs()).reshape((-1, 1, out_height, out_width))
+            self.fz = Linear(noise_features, out_width *
+                             out_height, False, init_method, activation)
+            self.__noise_transform = lambda z: F.linear(
+                z, self.fz.weight.abs()).reshape((-1, 1, out_height, out_width))
         else:
             raise NotImplementedError(
                 "Currently only support full noise channel")
-        self._p = torch.tensor(p, dtype=torch.float32)
-        self._fzws = np.prod(self.fz.weight.shape)
-    
-    def parameters(self):
-        return chain.from_iterable([
-            self.fx.parameters(), self.prior_params.parameters(), self.posterior_params.parameters()
-        ])
-
-    def weight_params(self):
-        return self.fz.parameters()
 
     def prior(self):
         return D.Normal(self.prior_params['mean'], self.prior_params['logstd'].exp())
@@ -169,19 +150,16 @@ class StochasticConv2d(nn.Module):
         return D.Normal(self.posterior_params['mean'], self.posterior_params['logstd'].exp())
 
     def kl(self):
-        prior = D.Normal(self.prior_params['mean'].detach(), self.prior_params['logstd'].detach().exp())
+        prior = D.Normal(self.prior_params['mean'].detach(),
+                         self.prior_params['logstd'].detach().exp())
         return D.kl_divergence(self.posterior(), prior).mean()
-    
-    def weight_norm(self):
-        return torch.norm(self.fz.weight, p=self._p)/self._fzws
 
     def forward(self, x, L, sample_prior=False):
         if sample_prior:
             dist = self.prior()
         else:
             dist = self.posterior()
-        z = dist.rsample((L, 1)) # [L, 1, H, W] or [L, 1, n_z]
-        z = self.__noise_transform(z)
-        x = self.fx(x).unsqueeze_(1) + z
-        return x
-        
+        z = dist.rsample((L, 1))  # [L, 1, H, W] or [L, 1, n_z]
+        fz = self.__noise_transform(z)
+        x = self.fx(x).unsqueeze_(1) + fz
+        return x, z

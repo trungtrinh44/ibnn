@@ -49,11 +49,11 @@ class DeterministicLeNet(nn.Module):
 
 class StochasticLeNet(nn.Module):
     def __init__(self, width, height, in_channel, n_channels, n_hidden, n_output=10, init_method='normal', activation='relu',
-                 init_mean=0.0, init_log_std=np.log(0.1), p=3/4, noise_type='full', noise_features=None):
+                 init_mean=0.0, init_log_std=np.log(0.1), noise_type='full', noise_features=None):
         super(StochasticLeNet, self).__init__()
         self.conv1 = StochasticConv2d(width, height, in_channel, n_channels[0], kernel_size=5,
                                       init_method=init_method, activation=activation,
-                                      init_mean=init_mean, init_log_std=init_log_std, p=p, noise_type=noise_type, noise_features=noise_features)
+                                      init_mean=init_mean, init_log_std=init_log_std, noise_type=noise_type, noise_features=noise_features)
         self.act1 = get_activation(activation)
         width = get_dimension_size_conv(width, 0, 1, 5)
         height = get_dimension_size_conv(height, 0, 1, 5)
@@ -73,14 +73,6 @@ class StochasticLeNet(nn.Module):
         self.act3 = get_activation(activation)
         self.fc2 = Linear(n_hidden, n_output,
                           init_method=init_method, activation='linear')
-
-    def weight_params(self):
-        return self.conv1.weight_params()
-    
-    def parameters(self):
-        return chain.from_iterable([
-            self.conv1.parameters(), self.conv2.parameters(), self.fc1.parameters(), self.fc2.parameters()
-        ])
 
     def prior(self):
         return self.conv1.prior()
@@ -109,12 +101,16 @@ class StochasticLeNet(nn.Module):
         return self.__loglikelihood(x, y, L, False)
 
     def vb_loss(self, x, y, L):
-        logp = self.__logsample(x, y, L, False)
-        return -logp.mean(), self.kl(), self.conv1.weight_norm()
+        y_pred, z = self.forward(x, L, False, True)
+        y_target = y.unsqueeze(1).repeat(1, L)
+        logp = D.Categorical(logits=y_pred).log_prob(y_target)
+        grad = torch.autograd.grad(y_pred, z, create_graph=True, 
+                                   grad_outputs=torch.ones_like(y_pred, device=y_pred.device))[0].squeeze_()
+        return -logp.mean(), self.kl(), grad.norm(p=2, dim=1).mean()
 
-    def forward(self, x, L, sample_prior=False):
+    def forward(self, x, L, sample_prior=False, return_noise=False):
         bs = x.size(0)
-        x = self.conv1(x, L, sample_prior)
+        x, z = self.conv1(x, L, sample_prior)
         x = self.act1(x)
         x = x.reshape(bs*L, x.size(2), x.size(3), x.size(4))
         x = F.max_pool2d(x, 2)
@@ -127,4 +123,6 @@ class StochasticLeNet(nn.Module):
         x = self.fc1(x)
         x = self.act3(x)
         x = self.fc2(x)
+        if return_noise:
+            return F.log_softmax(x, dim=-1), z
         return F.log_softmax(x, dim=-1)

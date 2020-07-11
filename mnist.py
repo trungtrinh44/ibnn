@@ -28,8 +28,7 @@ def my_config():
     init_log_std = -2.3
     weight_decay = 0.0
     lr = 1e-4
-    g_target = 1.0
-    gp_weight = 0.1
+    g_max = 1.0
     mll_iteration = 8000
     vb_iteration = 9000
     noise_type = 'full'
@@ -105,7 +104,7 @@ def test_nll(model, loader, device, num_test_sample):
 
 
 @ex.automain
-def main(_run, model_type, num_train_sample, num_test_sample, device, validate_freq, mll_iteration, vb_iteration, logging_freq, kl_weight, g_target, gp_weight):
+def main(_run, model_type, num_train_sample, num_test_sample, device, validate_freq, mll_iteration, vb_iteration, logging_freq, kl_weight, g_max):
     logger = get_logger()
     train_loader, valid_loader, test_loader = get_dataloader()
     logger.info(
@@ -148,7 +147,6 @@ def main(_run, model_type, num_train_sample, num_test_sample, device, validate_f
             model.load_state_dict(torch.load(
                 checkpoint_dir, map_location=device))
     # Second train using VB
-        g_target = torch.tensor(g_target, dtype=torch.float32).to(device)
         vb_iteration += mll_iteration
         best_nll = float('inf')
         for i, (bx, by) in train_iter:
@@ -158,7 +156,7 @@ def main(_run, model_type, num_train_sample, num_test_sample, device, validate_f
             by = by.to(device)
             optimizer.zero_grad()
             loglike, kl, g = model.vb_loss(bx, by, num_train_sample)
-            loss = loglike + kl_weight*kl + torch.nn.functional.smooth_l1_loss(g, g_target)*gp_weight
+            loss = loglike + kl_weight*kl + torch.nn.functional.relu(g_max - g)
             loss.backward()
             optimizer.step()
             ex.log_scalar('loglike.train', loglike.item(), i)

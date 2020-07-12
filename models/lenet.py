@@ -104,9 +104,7 @@ class StochasticLeNet(nn.Module):
         y_pred, z = self.forward(x, L, False, True)
         y_target = y.unsqueeze(1).repeat(1, L)
         logp = D.Categorical(logits=y_pred).log_prob(y_target)
-        grad = torch.autograd.grad(y_pred, z, create_graph=True, 
-                                   grad_outputs=torch.ones_like(y_pred, device=y_pred.device))[0].squeeze_()
-        return -logp.mean(), self.kl(), grad.norm(p=2, dim=1).mean()
+        return -logp.mean(), self.kl()
 
     def forward(self, x, L, sample_prior=False, return_noise=False):
         bs = x.size(0)

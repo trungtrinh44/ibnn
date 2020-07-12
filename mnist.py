@@ -28,8 +28,6 @@ def my_config():
     init_log_std = -2.3
     weight_decay = 0.0
     lr = 1e-4
-    g_min = 1.0
-    gp_weight = 1.0
     mll_iteration = 8000
     vb_iteration = 9000
     noise_type = 'full'
@@ -105,7 +103,7 @@ def test_nll(model, loader, device, num_test_sample):
 
 
 @ex.automain
-def main(_run, model_type, num_train_sample, num_test_sample, device, validate_freq, mll_iteration, vb_iteration, logging_freq, kl_weight, g_min, gp_weight):
+def main(_run, model_type, num_train_sample, num_test_sample, device, validate_freq, mll_iteration, vb_iteration, logging_freq, kl_weight):
     logger = get_logger()
     train_loader, valid_loader, test_loader = get_dataloader()
     logger.info(
@@ -157,16 +155,15 @@ def main(_run, model_type, num_train_sample, num_test_sample, device, validate_f
             bx = bx.to(device)
             by = by.to(device)
             optimizer.zero_grad()
-            loglike, kl, g = model.vb_loss(bx, by, num_train_sample)
-            loss = loglike + kl_weight*kl/n_batch + torch.nn.functional.relu(g_min - g)*gp_weight
+            loglike, kl = model.vb_loss(bx, by, num_train_sample)
+            loss = loglike + kl_weight*kl/n_batch
             loss.backward()
             optimizer.step()
             ex.log_scalar('loglike.train', loglike.item(), i)
             ex.log_scalar('kl.train', kl.item(), i)
-            ex.log_scalar('grad', g.item(), i)
             if i % logging_freq == 0:
-                logger.info("VB Epoch %d: loglike: %.4f, kl: %.4f, g: %.2f",
-                            i, loglike.item(), kl.item(), g.item())
+                logger.info("VB Epoch %d: loglike: %.4f, kl: %.4f",
+                            i, loglike.item(), kl.item())
             if i % validate_freq == 0:
                 model.eval()
                 with torch.no_grad():

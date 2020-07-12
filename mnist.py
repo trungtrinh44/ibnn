@@ -28,7 +28,7 @@ def my_config():
     init_log_std = -2.3
     weight_decay = 0.0
     lr = 1e-4
-    g_max = 1.0
+    g_min = 1.0
     mll_iteration = 8000
     vb_iteration = 9000
     noise_type = 'full'
@@ -104,7 +104,7 @@ def test_nll(model, loader, device, num_test_sample):
 
 
 @ex.automain
-def main(_run, model_type, num_train_sample, num_test_sample, device, validate_freq, mll_iteration, vb_iteration, logging_freq, kl_weight, g_max):
+def main(_run, model_type, num_train_sample, num_test_sample, device, validate_freq, mll_iteration, vb_iteration, logging_freq, kl_weight, g_min):
     logger = get_logger()
     train_loader, valid_loader, test_loader = get_dataloader()
     logger.info(
@@ -157,7 +157,7 @@ def main(_run, model_type, num_train_sample, num_test_sample, device, validate_f
             by = by.to(device)
             optimizer.zero_grad()
             loglike, kl, g = model.vb_loss(bx, by, num_train_sample)
-            loss = loglike + kl_weight*kl/n_batch + torch.nn.functional.relu(g_max - g)
+            loss = loglike + kl_weight*kl/n_batch + torch.nn.functional.relu(g_min - g)
             loss.backward()
             optimizer.step()
             ex.log_scalar('loglike.train', loglike.item(), i)

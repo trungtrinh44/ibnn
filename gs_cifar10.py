@@ -21,7 +21,7 @@ def my_config():
     seed = 1
     model_type = 'stochastic'
     kl_weight = 5.0
-    batch_size = 132
+    batch_size = 128
     conv_hiddens = [32, 64]
     fc_hidden = 512
     init_mean = 0.0

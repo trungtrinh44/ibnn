@@ -108,12 +108,16 @@ def get_data_loader(dataset, batch_size=64, validation=False, validation_fractio
             root_dir, train=True, download=True,
             transform=torchvision.transforms.Compose([
                 torchvision.transforms.Grayscale(num_output_channels=1),
-                torchvision.transforms.ToTensor()]))
+                torchvision.transforms.ToTensor(),
+                torchvision.transforms.Normalize(
+                    (0.4809,), (0.2392,))]))
         test_data = torchvision.datasets.CIFAR10(root_dir, train=False, download=True,
                                                  transform=torchvision.transforms.Compose([
                                                      torchvision.transforms.Grayscale(
                                                          num_output_channels=1),
-                                                     torchvision.transforms.ToTensor()]))
+                                                     torchvision.transforms.ToTensor(),
+                                                     torchvision.transforms.Normalize(
+                                                         (0.4809,), (0.2392,))]))
         test_loader = DataLoader(
             test_data, batch_size=batch_size, pin_memory=True, shuffle=False)
         if validation:
@@ -121,7 +125,9 @@ def get_data_loader(dataset, batch_size=64, validation=False, validation_fractio
                                                       transform=torchvision.transforms.Compose([
                                                           torchvision.transforms.Grayscale(
                                                               num_output_channels=1),
-                                                          torchvision.transforms.ToTensor()]))
+                                                          torchvision.transforms.ToTensor(),
+                                                          torchvision.transforms.Normalize(
+                                                              (0.4809,), (0.2392,))]))
             train_idx, valid_idx = train_test_split(np.arange(len(train_data.targets)),
                                                     test_size=validation_fraction,
                                                     shuffle=True, random_state=random_state,

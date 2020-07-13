@@ -103,4 +103,36 @@ def get_data_loader(dataset, batch_size=64, validation=False, validation_fractio
             train_loader = DataLoader(
                 train_data, batch_size=batch_size, pin_memory=True, shuffle=True)
             return train_loader, test_loader
+    if dataset == 'greyscalecifar10':
+        train_data = torchvision.datasets.CIFAR10(
+            root_dir, train=True, download=True,
+            transform=torchvision.transforms.Compose([
+                torchvision.transforms.Grayscale(num_output_channels=1),
+                torchvision.transforms.ToTensor()]))
+        test_data = torchvision.datasets.CIFAR10(root_dir, train=False, download=True,
+                                                 transform=torchvision.transforms.Compose([
+                                                     torchvision.transforms.Grayscale(
+                                                         num_output_channels=1),
+                                                     torchvision.transforms.ToTensor()]))
+        test_loader = DataLoader(
+            test_data, batch_size=batch_size, pin_memory=True, shuffle=False)
+        if validation:
+            valid_data = torchvision.datasets.CIFAR10(root_dir, train=True, download=True,
+                                                      transform=torchvision.transforms.Compose([
+                                                          torchvision.transforms.Grayscale(
+                                                              num_output_channels=1),
+                                                          torchvision.transforms.ToTensor()]))
+            train_idx, valid_idx = train_test_split(np.arange(len(train_data.targets)),
+                                                    test_size=validation_fraction,
+                                                    shuffle=True, random_state=random_state,
+                                                    stratify=train_data.targets)
+            train_loader = DataLoader(Subset(
+                train_data, train_idx), batch_size=batch_size, pin_memory=True, shuffle=True)
+            valid_loader = DataLoader(Subset(
+                valid_data, valid_idx), batch_size=batch_size, pin_memory=True, shuffle=False)
+            return train_loader, valid_loader, test_loader
+        else:
+            train_loader = DataLoader(
+                train_data, batch_size=batch_size, pin_memory=True, shuffle=True)
+            return train_loader, test_loader
     raise NotImplementedError('Dataset is not supported')

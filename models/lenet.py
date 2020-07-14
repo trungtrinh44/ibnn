@@ -75,6 +75,14 @@ class StochasticLeNet(nn.Module):
         self.fc2 = Linear(n_hidden, n_output,
                           init_method=init_method, activation='linear')
 
+    def stochastic_params(self):
+        return self.conv1.stochastic_params()
+
+    def parameters(self):
+        return chain.from_iterable([
+            self.conv1.parameters(), self.conv2.parameters(), self.fc1.parameters(), self.fc2.parameters()
+        ])
+
     def prior(self):
         return self.conv1.prior()
 

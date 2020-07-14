@@ -26,8 +26,12 @@ def my_config():
     fc_hidden = 512
     init_mean = 0.0
     init_log_std = -2.3
-    weight_decay = 0.0
-    lr = 1e-4
+    det_params = {
+        'lr': 1e-4, 'weight_decay': 0.0
+    }
+    sto_params = {
+        'lr': 1e-4, 'weight_decay': 0.0
+    }
     mll_iteration = 12000
     vb_iteration = 14000
     noise_type = 'full'
@@ -49,15 +53,28 @@ def my_config():
 
 @ex.capture
 def get_model(model_type, conv_hiddens, fc_hidden, init_method, activation, init_mean, init_log_std, freeze_prior_mean, freeze_prior_std,
-              noise_type, noise_size, lr, weight_decay, device):
+              noise_type, noise_size, device,
+              det_params, sto_params):
     if model_type == 'stochastic':
-        model = StochasticLeNet(32, 32, 1, conv_hiddens, fc_hidden, 10, init_method,
+        model = StochasticLeNet(28, 28, 1, conv_hiddens, fc_hidden, 10, init_method,
                                 activation, init_mean, init_log_std, noise_type, noise_size, freeze_prior_mean, freeze_prior_std)
+        optimizer = torch.optim.AdamW(
+            [{
+                'params': model.parameters(),
+                **det_params
+            },{
+                'params': model.stochastic_params(),
+                **sto_params
+            }]
+        )
     else:
         model = DeterministicLeNet(
-            32, 32, 1, conv_hiddens, fc_hidden, 10, init_method, activation)
-    optimizer = torch.optim.AdamW(
-        model.parameters(), lr=lr, weight_decay=weight_decay)
+            28, 28, 1, conv_hiddens, fc_hidden, 10, init_method, activation)
+        optimizer = torch.optim.AdamW(
+            [{
+                'params': model.parameters(),
+                **det_params
+            }])
     model.to(device)
     return model, optimizer
 

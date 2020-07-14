@@ -23,6 +23,14 @@ class RegressionMLP(nn.Module):
         self.likelihood_logstd = nn.Parameter(
             torch.zeros(()), requires_grad=False)
 
+    def stochastic_params(self):
+        return self.first.stochastic_params()
+
+    def parameters(self):
+        return chain.from_iterable([
+            self.first.parameters(), self.layers.parameters()
+        ])
+
     def prior(self):
         return self.first.prior()
 

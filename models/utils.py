@@ -15,7 +15,7 @@ def count_parameters(model, logger):
         param = parameter.numel()
         table.add_row([name, param, parameter.requires_grad])
         total_params += param
-    logger.info(table)
+    logger.info(f"\n{table}")
     logger.info(f"Total Trainable Params: {total_params}")
     return total_params
 
@@ -77,6 +77,14 @@ class StochasticLinear(nn.Module):
             'mean': nn.Parameter(torch.full((noise_features,), init_mean, dtype=torch.float32), requires_grad=True),
             'logstd': nn.Parameter(torch.full((noise_features,), init_log_std, dtype=torch.float32), requires_grad=True)
         })
+
+    def parameters(self):
+        return self.fx.parameters()
+
+    def stochastic_params(self):
+        return chain.from_iterable([
+            self.fz.parameters(), self.prior_params.parameters(), self.posterior_params.parameters()
+        ])
 
     def prior(self):
         return D.Normal(self.prior_params['mean'], self.prior_params['logstd'].exp())
@@ -156,6 +164,14 @@ class StochasticConv2d(nn.Module):
         else:
             raise NotImplementedError(
                 "Currently only support full noise channel")
+
+    def parameters(self):
+        return self.fx.parameters()
+
+    def stochastic_params(self):
+        return chain.from_iterable([
+            self.fz.parameters(), self.prior_params.parameters(), self.posterior_params.parameters()
+        ])
 
     def prior(self):
         return D.Normal(self.prior_params['mean'], self.prior_params['logstd'].exp())

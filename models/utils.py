@@ -1,10 +1,23 @@
+from itertools import chain
+
 import numpy as np
 import torch
 import torch.distributions as D
 import torch.nn as nn
 import torch.nn.functional as F
-from itertools import chain
+from prettytable import PrettyTable
 
+
+def count_parameters(model, logger):
+    table = PrettyTable(["Modules", "Parameters", "Trainable?"])
+    total_params = 0
+    for name, parameter in model.named_parameters():
+        param = parameter.numel()
+        table.add_row([name, param, parameter.requires_grad])
+        total_params += param
+    logger.info(table)
+    logger.info(f"Total Trainable Params: {total_params}")
+    return total_params
 
 def swish(x):
     return x*torch.sigmoid(x)
@@ -49,15 +62,16 @@ class Linear(nn.Linear):
 
 class StochasticLinear(nn.Module):
     def __init__(self, in_features: int, noise_features: int, out_features: int, bias: bool = True,
-                 init_mean=0.0, init_log_std=0.0, init_method='normal', activation='relu'):
+                 init_mean=0.0, init_log_std=0.0, init_method='normal', activation='relu',
+                 freeze_prior_mean=True, freeze_prior_std=False):
         super(StochasticLinear, self).__init__()
         self.fx = Linear(in_features, out_features, bias,
                          init_method, activation)
         self.fz = Linear(noise_features, out_features,
                          False, init_method, activation)
         self.prior_params = nn.ParameterDict({
-            'mean': nn.Parameter(torch.full((noise_features,), init_mean, dtype=torch.float32), requires_grad=False),
-            'logstd': nn.Parameter(torch.full((noise_features,), init_log_std, dtype=torch.float32), requires_grad=True)
+            'mean': nn.Parameter(torch.full((noise_features,), init_mean, dtype=torch.float32), requires_grad=not freeze_prior_mean),
+            'logstd': nn.Parameter(torch.full((noise_features,), init_log_std, dtype=torch.float32), requires_grad=not freeze_prior_std)
         })
         self.posterior_params = nn.ParameterDict({
             'mean': nn.Parameter(torch.full((noise_features,), init_mean, dtype=torch.float32), requires_grad=True),
@@ -105,7 +119,7 @@ class Conv2d(nn.Conv2d):
 class StochasticConv2d(nn.Module):
     def __init__(self, width, height, in_channels, out_channels, kernel_size, stride=1,
                  padding=0, dilation=1, groups=1, bias=True, padding_mode='zeros', init_method='normal', activation='relu',
-                 init_mean=0.0, init_log_std=0.0, p=3/4, noise_type='full', noise_features=None):
+                 init_mean=0.0, init_log_std=0.0, noise_type='full', noise_features=None, freeze_prior_mean=True, freeze_prior_std=False):
         super(StochasticConv2d, self).__init__()
         out_width = get_dimension_size_conv(
             width, padding, stride, kernel_size)
@@ -117,8 +131,8 @@ class StochasticConv2d(nn.Module):
             self.fz = Conv2d(1, out_channels, kernel_size, stride, padding,
                              dilation, groups, False, padding_mode, init_method, activation)
             self.prior_params = nn.ParameterDict({
-                'mean': nn.Parameter(torch.full([height, width], init_mean, dtype=torch.float32), requires_grad=False),
-                'logstd': nn.Parameter(torch.full([height, width], init_log_std, dtype=torch.float32), requires_grad=True)
+                'mean': nn.Parameter(torch.full([height, width], init_mean, dtype=torch.float32), requires_grad=not freeze_prior_mean),
+                'logstd': nn.Parameter(torch.full([height, width], init_log_std, dtype=torch.float32), requires_grad=not freeze_prior_std)
             })
             self.posterior_params = nn.ParameterDict({
                 'mean': nn.Parameter(torch.full([height, width], init_mean, dtype=torch.float32), requires_grad=True),

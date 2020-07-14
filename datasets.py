@@ -46,13 +46,13 @@ def get_data_loader(dataset, batch_size=64, validation=False, validation_fractio
                                                        transform=torchvision.transforms.Compose([
                                                            torchvision.transforms.ToTensor(),
                                                            torchvision.transforms.Normalize(
-                                                               (0.2860,), (0.3205,))
+                                                               (0.2860,), (0.3530,))
                                                        ]))
         test_data = torchvision.datasets.FashionMNIST(root_dir, train=False, download=True,
                                                       transform=torchvision.transforms.Compose([
                                                           torchvision.transforms.ToTensor(),
                                                           torchvision.transforms.Normalize(
-                                                              (0.2860,), (0.3205,))
+                                                              (0.2860,), (0.3530,))
                                                       ]))
         test_loader = DataLoader(
             test_data, batch_size=batch_size, pin_memory=True, shuffle=False)
@@ -78,18 +78,18 @@ def get_data_loader(dataset, batch_size=64, validation=False, validation_fractio
                 torchvision.transforms.RandomHorizontalFlip(),
                 torchvision.transforms.RandomCrop(32),
                 torchvision.transforms.ToTensor(),
-                torchvision.transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))]))
+                torchvision.transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2470, 0.2435, 0.2616))]))
         test_data = torchvision.datasets.CIFAR10(root_dir, train=False, download=True,
                                                  transform=torchvision.transforms.Compose([
                                                      torchvision.transforms.ToTensor(),
-                                                     torchvision.transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))]))
+                                                     torchvision.transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2470, 0.2435, 0.2616))]))
         test_loader = DataLoader(
             test_data, batch_size=batch_size, pin_memory=True, shuffle=False)
         if validation:
             valid_data = torchvision.datasets.CIFAR10(root_dir, train=True, download=True,
                                                       transform=torchvision.transforms.Compose([
                                                           torchvision.transforms.ToTensor(),
-                                                          torchvision.transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))]))
+                                                          torchvision.transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2470, 0.2435, 0.2616))]))
             train_idx, valid_idx = train_test_split(np.arange(len(train_data.targets)),
                                                     test_size=validation_fraction,
                                                     shuffle=True, random_state=random_state,

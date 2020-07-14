@@ -8,7 +8,7 @@ from sacred import Experiment
 from sacred.observers import FileStorageObserver
 
 from datasets import get_data_loader, infinite_wrapper
-from models import DeterministicLeNet, StochasticLeNet
+from models import DeterministicLeNet, StochasticLeNet, count_parameters
 
 EXPERIMENT = 'greyscalecifar10'
 BASE_DIR = os.path.join('runs', EXPERIMENT)
@@ -41,15 +41,18 @@ def my_config():
     num_test_sample = 200
     logging_freq = 500
     device = 'cuda'
+    freeze_prior_mean = True
+    freeze_prior_std = False
     if not torch.cuda.is_available():
         device = 'cpu'
 
 
 @ex.capture
-def get_model(model_type, conv_hiddens, fc_hidden, init_method, activation, init_mean, init_log_std, noise_type, noise_size, lr, weight_decay, device):
+def get_model(model_type, conv_hiddens, fc_hidden, init_method, activation, init_mean, init_log_std, freeze_prior_mean, freeze_prior_std,
+              noise_type, noise_size, lr, weight_decay, device):
     if model_type == 'stochastic':
         model = StochasticLeNet(32, 32, 1, conv_hiddens, fc_hidden, 10, init_method,
-                                activation, init_mean, init_log_std, noise_type, noise_size)
+                                activation, init_mean, init_log_std, noise_type, noise_size, freeze_prior_mean, freeze_prior_std)
     else:
         model = DeterministicLeNet(
             32, 32, 1, conv_hiddens, fc_hidden, 10, init_method, activation)
@@ -111,6 +114,7 @@ def main(_run, model_type, num_train_sample, num_test_sample, device, validate_f
     n_batch = len(train_loader)
     train_loader = infinite_wrapper(train_loader)
     model, optimizer = get_model()
+    count_parameters(model, logger)
     logger.info(str(model))
     checkpoint_dir = os.path.join(BASE_DIR, _run._id, 'checkpoint.pt')
 

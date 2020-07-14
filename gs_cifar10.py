@@ -32,8 +32,12 @@ def my_config():
     sto_params = {
         'lr': 1e-4, 'weight_decay': 0.0
     }
-    mll_iteration = 12000
-    vb_iteration = 14000
+    lr_scheduler = {
+        'milestones': [32000, 64000, 96000],
+        'gamma': 1/3
+    }
+    mll_iteration = 400000
+    vb_iteration = 0
     noise_type = 'full'
     noise_size = [32, 32]
     init_method = 'normal'
@@ -53,8 +57,7 @@ def my_config():
 
 @ex.capture
 def get_model(model_type, conv_hiddens, fc_hidden, init_method, activation, init_mean, init_log_std, freeze_prior_mean, freeze_prior_std,
-              noise_type, noise_size, device,
-              det_params, sto_params):
+              noise_type, noise_size, device, lr_scheduler, det_params, sto_params):
     if model_type == 'stochastic':
         model = StochasticLeNet(32, 32, 1, conv_hiddens, fc_hidden, 10, init_method,
                                 activation, init_mean, init_log_std, noise_type, noise_size, freeze_prior_mean, freeze_prior_std)
@@ -62,7 +65,7 @@ def get_model(model_type, conv_hiddens, fc_hidden, init_method, activation, init
             [{
                 'params': model.parameters(),
                 **det_params
-            },{
+            }, {
                 'params': model.stochastic_params(),
                 **sto_params
             }]
@@ -76,7 +79,8 @@ def get_model(model_type, conv_hiddens, fc_hidden, init_method, activation, init
                 **det_params
             }])
     model.to(device)
-    return model, optimizer
+    scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, **lr_scheduler)
+    return model, optimizer, scheduler
 
 
 @ex.capture
@@ -130,7 +134,7 @@ def main(_run, model_type, num_train_sample, num_test_sample, device, validate_f
         f"Train size: {len(train_loader.dataset)}, validation size: {len(valid_loader.dataset)}, test size: {len(test_loader.dataset)}")
     n_batch = len(train_loader)
     train_loader = infinite_wrapper(train_loader)
-    model, optimizer = get_model()
+    model, optimizer, scheduler = get_model()
     count_parameters(model, logger)
     logger.info(str(model))
     checkpoint_dir = os.path.join(BASE_DIR, _run._id, 'checkpoint.pt')
@@ -149,6 +153,7 @@ def main(_run, model_type, num_train_sample, num_test_sample, device, validate_f
             mll = model.marginal_loglikelihood_loss(bx, by, num_train_sample)
             mll.backward()
             optimizer.step()
+            scheduler.step()
             ex.log_scalar('mll.train', mll.item(), i)
             if i % logging_freq == 0:
                 logger.info("MLL Epoch %d: train %.4f", i, mll)
@@ -180,6 +185,7 @@ def main(_run, model_type, num_train_sample, num_test_sample, device, validate_f
             loss = loglike + kl_weight*kl/n_batch
             loss.backward()
             optimizer.step()
+            scheduler.step()
             ex.log_scalar('loglike.train', loglike.item(), i)
             ex.log_scalar('kl.train', kl.item(), i)
             if i % logging_freq == 0:
@@ -244,6 +250,7 @@ def main(_run, model_type, num_train_sample, num_test_sample, device, validate_f
             loss = torch.nn.functional.nll_loss(pred, by)
             loss.backward()
             optimizer.step()
+            scheduler.step()
             ex.log_scalar("nll.train", loss.item(), i)
             if i % logging_freq == 0:
                 logger.info("Epoch %d: train %.4f", i, loss.item())

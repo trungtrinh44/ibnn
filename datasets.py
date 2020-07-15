@@ -141,4 +141,15 @@ def get_data_loader(dataset, batch_size=64, validation=False, validation_fractio
             train_loader = DataLoader(
                 train_data, batch_size=batch_size, pin_memory=True, shuffle=True)
             return train_loader, test_loader
+    if dataset == 'semeion':
+        test_data = torchvision.datasets.SEMEION(root_dir, download=True,
+                                                 transform=torchvision.transforms.Compose([
+                                                     torchvision.transforms.Pad(6),
+                                                     torchvision.transforms.ToTensor(),
+                                                     torchvision.transforms.Normalize(
+                                                         (0.1307,), (0.3081,))
+                                                 ]))
+        test_loader = DataLoader(test_data, batch_size=batch_size,
+                                 pin_memory=True, shuffle=False)
+        return test_loader
     raise NotImplementedError('Dataset is not supported')

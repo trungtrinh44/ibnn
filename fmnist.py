@@ -204,13 +204,16 @@ def main(_run, model_type, num_train_sample, num_test_sample, device, validate_f
         acc = 0
         nll_miss = 0
         model.eval()
+        if vb_iteration == 0:
+            ll_func = model.marginal_loglikelihood_loss
+        else:
+            ll_func = model.negative_loglikelihood
         with torch.no_grad():
             for bx, by in test_loader:
                 bx = bx.to(device)
                 by = by.to(device)
                 prob = model(bx, num_test_sample)
-                tnll += model.negative_loglikelihood(
-                    bx, by, num_test_sample).item() * len(by)
+                tnll += ll_func(bx, by, num_test_sample).item() * len(by)
                 vote = prob.argmax(2)
                 onehot = torch.zeros(
                     (vote.size(0), vote.size(1), 10), device=vote.device)

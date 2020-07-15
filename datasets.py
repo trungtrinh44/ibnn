@@ -74,9 +74,9 @@ def get_data_loader(dataset, batch_size=64, validation=False, validation_fractio
         train_data = torchvision.datasets.CIFAR10(
             root_dir, train=True, download=True,
             transform=torchvision.transforms.Compose([
-                torchvision.transforms.Pad(4),
-                torchvision.transforms.RandomHorizontalFlip(),
-                torchvision.transforms.RandomCrop(32),
+                # torchvision.transforms.Pad(4),
+                # torchvision.transforms.RandomHorizontalFlip(),
+                # torchvision.transforms.RandomCrop(32),
                 torchvision.transforms.ToTensor(),
                 torchvision.transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))]))
         test_data = torchvision.datasets.CIFAR10(root_dir, train=False, download=True,

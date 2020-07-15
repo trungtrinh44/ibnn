@@ -10,7 +10,7 @@ from sacred.observers import FileStorageObserver
 from datasets import get_data_loader, infinite_wrapper
 from models import DeterministicLeNet, StochasticLeNet, count_parameters
 
-EXPERIMENT = 'greyscalecifar10'
+EXPERIMENT = 'cifar10'
 BASE_DIR = os.path.join('runs', EXPERIMENT)
 ex = Experiment(EXPERIMENT)
 ex.observers.append(FileStorageObserver(BASE_DIR))
@@ -59,7 +59,7 @@ def my_config():
 def get_model(model_type, conv_hiddens, fc_hidden, init_method, activation, init_mean, init_log_std, freeze_prior_mean, freeze_prior_std,
               noise_type, noise_size, device, lr_scheduler, det_params, sto_params):
     if model_type == 'stochastic':
-        model = StochasticLeNet(32, 32, 1, conv_hiddens, fc_hidden, 10, init_method,
+        model = StochasticLeNet(32, 32, 3, conv_hiddens, fc_hidden, 10, init_method,
                                 activation, init_mean, init_log_std, noise_type, noise_size, freeze_prior_mean, freeze_prior_std)
         optimizer = torch.optim.AdamW(
             [{
@@ -72,7 +72,7 @@ def get_model(model_type, conv_hiddens, fc_hidden, init_method, activation, init
         )
     else:
         model = DeterministicLeNet(
-            32, 32, 1, conv_hiddens, fc_hidden, 10, init_method, activation)
+            32, 32, 3, conv_hiddens, fc_hidden, 10, init_method, activation)
         optimizer = torch.optim.AdamW(
             [{
                 'params': model.parameters(),
@@ -85,7 +85,7 @@ def get_model(model_type, conv_hiddens, fc_hidden, init_method, activation, init
 
 @ex.capture
 def get_dataloader(batch_size, validation, validation_fraction, seed):
-    return get_data_loader('greyscalecifar10', batch_size, validation, validation_fraction, seed)
+    return get_data_loader('cifar10', batch_size, validation, validation_fraction, seed)
 
 
 @ex.capture

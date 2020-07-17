@@ -66,7 +66,7 @@ def get_model(model_type, conv_hiddens, fc_hidden, init_method, activation, init
             [{
                 'params': model.parameters(),
                 **det_params
-            },{
+            }, {
                 'params': model.stochastic_params(),
                 **sto_params
             }], **adam_params
@@ -216,7 +216,7 @@ def main(_run, model_type, num_train_sample, num_test_sample, device, validate_f
             for bx, by in test_loader:
                 bx = bx.to(device)
                 by = by.to(device)
-                prob = model(bx, num_test_sample)
+                prob = model(bx, num_test_sample, vb_iteration == 0)
                 tnll += ll_func(bx, by, num_test_sample).item() * len(by)
                 vote = prob.argmax(2)
                 onehot = torch.zeros(
@@ -230,8 +230,8 @@ def main(_run, model_type, num_train_sample, num_test_sample, device, validate_f
                 if y_miss.sum().item() > 0:
                     by_miss = by[y_miss]
                     bx_miss = bx[y_miss]
-                    nll_miss += model.negative_loglikelihood(
-                        bx_miss, by_miss, num_test_sample).item() * len(by_miss)
+                    nll_miss += ll_func(bx_miss, by_miss,
+                                        num_test_sample).item() * len(by_miss)
                 acc += (pred == by).sum().item()
         nll_miss /= len(test_loader.dataset) - acc
         tnll /= len(test_loader.dataset)

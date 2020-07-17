@@ -32,6 +32,10 @@ def my_config():
     sto_params = {
         'lr': 1e-4, 'weight_decay': 0.0
     }
+    adam_params = {
+        'betas': (0.9, 0.999),
+        'eps': 1e-8
+    }
     mll_iteration = 8000
     vb_iteration = 9000
     noise_type = 'full'
@@ -53,7 +57,7 @@ def my_config():
 
 @ex.capture
 def get_model(model_type, conv_hiddens, fc_hidden, init_method, activation, init_mean, init_log_std, freeze_prior_mean, freeze_prior_std,
-              noise_type, noise_size, device,
+              noise_type, noise_size, device, adam_params,
               det_params, sto_params):
     if model_type == 'stochastic':
         model = StochasticLeNet(28, 28, 1, conv_hiddens, fc_hidden, 10, init_method,
@@ -65,7 +69,7 @@ def get_model(model_type, conv_hiddens, fc_hidden, init_method, activation, init
             },{
                 'params': model.stochastic_params(),
                 **sto_params
-            }]
+            }], **adam_params
         )
     else:
         model = DeterministicLeNet(
@@ -74,7 +78,7 @@ def get_model(model_type, conv_hiddens, fc_hidden, init_method, activation, init
             [{
                 'params': model.parameters(),
                 **det_params
-            }])
+            }], **adam_params)
     model.to(device)
     return model, optimizer
 

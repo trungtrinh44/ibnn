@@ -36,6 +36,10 @@ def my_config():
         'milestones': [32000, 64000, 96000],
         'gamma': 1/3
     }
+    adam_params = {
+        'betas': (0.9, 0.999),
+        'eps': 1e-8
+    }
     mll_iteration = 400000
     vb_iteration = 0
     noise_type = 'full'
@@ -57,7 +61,7 @@ def my_config():
 
 @ex.capture
 def get_model(model_type, conv_hiddens, fc_hidden, init_method, activation, init_mean, init_log_std, freeze_prior_mean, freeze_prior_std,
-              noise_type, noise_size, device, lr_scheduler, det_params, sto_params):
+              noise_type, noise_size, device, lr_scheduler, det_params, sto_params, adam_params):
     if model_type == 'stochastic':
         model = StochasticLeNet(32, 32, 1, conv_hiddens, fc_hidden, 10, init_method,
                                 activation, init_mean, init_log_std, noise_type, noise_size, freeze_prior_mean, freeze_prior_std)
@@ -68,7 +72,7 @@ def get_model(model_type, conv_hiddens, fc_hidden, init_method, activation, init
             }, {
                 'params': model.stochastic_params(),
                 **sto_params
-            }]
+            }], **adam_params
         )
     else:
         model = DeterministicLeNet(
@@ -77,7 +81,7 @@ def get_model(model_type, conv_hiddens, fc_hidden, init_method, activation, init
             [{
                 'params': model.parameters(),
                 **det_params
-            }])
+            }], **adam_params)
     model.to(device)
     scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, **lr_scheduler)
     return model, optimizer, scheduler

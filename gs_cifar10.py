@@ -66,12 +66,9 @@ def get_model(model_type, conv_hiddens, fc_hidden, init_method, activation, init
               noise_type, noise_size, device, adam_params, single_prior_mean, single_prior_std, lr_scheduler,
               det_params, sto_params):
     if model_type == 'stochastic':
-        model = StochasticLeNet(28, 28, 1, conv_hiddens, fc_hidden, 10, init_method,
+        model = StochasticLeNet(32, 32, 1, conv_hiddens, fc_hidden, 10, init_method,
                                 activation, init_mean, init_log_std, noise_type, noise_size, freeze_prior_mean, freeze_prior_std,
                                 single_prior_mean, single_prior_std)
-    if model_type == 'stochastic':
-        model = StochasticLeNet(32, 32, 1, conv_hiddens, fc_hidden, 10, init_method,
-                                activation, init_mean, init_log_std, noise_type, noise_size, freeze_prior_mean, freeze_prior_std)
         optimizer = torch.optim.AdamW(
             [{
                 'params': model.parameters(),

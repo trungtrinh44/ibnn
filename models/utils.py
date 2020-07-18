@@ -111,17 +111,17 @@ class StochasticLinear(nn.Module):
 class Conv2d(nn.Conv2d):
     def __init__(self, in_channels, out_channels, kernel_size, stride=1,
                  padding=0, dilation=1, groups=1, bias=True, padding_mode='zeros', init_method='normal', activation='relu'):
-        super(Conv2d, self).__init__(in_channels, out_channels, kernel_size, stride=1,
-                                     padding=0, dilation=1, groups=1, bias=True, padding_mode='zeros')
+        super(Conv2d, self).__init__(in_channels, out_channels, kernel_size, stride=stride,
+                                     padding=padding, dilation=dilation, groups=groups, bias=bias, padding_mode=padding_mode)
         if init_method == 'orthogonal':
             nn.init.orthogonal_(
                 self.weight, nn.init.calculate_gain(activation))
             if bias:
                 nn.init.constant_(self.bias, 0.0)
         elif init_method == 'normal':
-            nn.init.normal_(self.weight, mean=0.0, std=0.1)
+            nn.init.normal_(self.weight, mean=0.0, std=0.01)
             if bias:
-                nn.init.constant_(self.bias, 0.1)
+                nn.init.constant_(self.bias, 0.01)
 
 
 class StochasticConv2d(nn.Module):

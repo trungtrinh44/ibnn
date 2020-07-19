@@ -1,3 +1,6 @@
 .vscode/settings.json
 __pycache__
 data
+*.out
+*.slrm
+runs

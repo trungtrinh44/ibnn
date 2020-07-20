@@ -138,7 +138,7 @@ class StochasticConv2d(nn.Module):
                          dilation, groups, bias, padding_mode, init_method, activation)
         if noise_type == 'full':
             self.fz = Conv2d(1, out_channels, kernel_size, stride, padding,
-                             dilation, groups, False, padding_mode, init_method, activation)
+                             dilation, groups, bias, padding_mode, init_method, activation)
             self.prior_params = nn.ParameterDict({
                 'mean': nn.Parameter(torch.full([1] if single_prior_mean else [height, width], init_mean, dtype=torch.float32), requires_grad=not freeze_prior_mean),
                 'logstd': nn.Parameter(torch.full([1] if single_prior_std else [height, width], init_log_std, dtype=torch.float32), requires_grad=not freeze_prior_std)
@@ -159,7 +159,7 @@ class StochasticConv2d(nn.Module):
                 'logstd': nn.Parameter(torch.full([1] if single_prior_mean else [noise_features], init_log_std, dtype=torch.float32), requires_grad=True)
             })
             self.fz = Linear(noise_features, out_width *
-                             out_height, False, init_method, activation)
+                             out_height, bias, init_method, activation)
             self.__noise_transform = lambda z: F.linear(
                 z, self.fz.weight.abs()).reshape((-1, 1, out_height, out_width))
         else:

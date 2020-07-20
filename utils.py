@@ -2,6 +2,7 @@ import itertools
 
 import matplotlib.pyplot as plt
 import numpy as np
+from scipy.stats import entropy
 from sklearn.metrics import auc, roc_curve
 
 
@@ -71,6 +72,35 @@ def plot_auc(y_true, y_prob, n_classes, nrows, ncols, save_path=None):
             ax.set_ylabel('True Positive Rate')
         if i / ncols >= nrows - 1:
             ax.set_xlabel('False Positive Rate')
+    plt.tight_layout()
+    if save_path is not None:
+        plt.savefig(save_path)
+
+
+def plot_samples(y_true, y_prob, test_image, n_classes, save_path=None):
+    cleartoblur = entropy(y_prob.mean(axis=1), axis=1).argsort()
+    sort_y_test = y_true[cleartoblur]
+    fig, axes = plt.subplots(nrows=2*n_classes, ncols=10, figsize=(4*10, 8*n_classes),
+                             sharey='row', gridspec_kw={'height_ratios': [2, 1]*n_classes})
+    for i in range(n_classes):
+        im_ax = axes[2*i]
+        prob_ax = axes[2*i + 1]
+        class_idx = cleartoblur[sort_y_test == i]
+        class_idx = np.concatenate([class_idx[:5], class_idx[-5:]], axis=0)
+        for idx, ax1, ax2 in zip(class_idx, im_ax, prob_ax):
+            image = test_image[idx]
+            if len(image.shape) > 2:
+                image = image.transpose((1, 2, 0))
+            ax1.imshow(image)
+            ax1.set_xticks([])
+            ax1.set_yticks([])
+            parts = ax2.violinplot(y_prob[idx], positions=np.arange(10))
+            for pc in parts['bodies']:
+                pc.set_edgecolor('black')
+            for j in range(10):
+                ax2.plot(np.random.normal(j, 0.04, len(
+                    y_prob[idx, :, j])), y_prob[idx, :, j], 'b.', alpha=0.1)
+            ax2.set_xticks(np.arange(10))
     plt.tight_layout()
     if save_path is not None:
         plt.savefig(save_path)

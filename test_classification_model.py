@@ -7,7 +7,7 @@ import torch
 
 from datasets import get_data_loader
 from models import DeterministicLeNet, StochasticLeNet
-from utils import plot_auc, plot_calibration_curve
+from utils import plot_auc, plot_calibration_curve, plot_samples
 
 
 def test_stochastic(model, dataloader, device, num_test_sample, path, mll):
@@ -16,6 +16,7 @@ def test_stochastic(model, dataloader, device, num_test_sample, path, mll):
     nll_miss = 0
     y_prob = []
     y_true = []
+    y_prob_all = []
     if mll:
         func = model.marginal_loglikelihood_loss
     else:
@@ -30,6 +31,7 @@ def test_stochastic(model, dataloader, device, num_test_sample, path, mll):
                          num_test_sample).item() * len(by)
             vote = prob.exp().mean(dim=1)
             top3 = torch.topk(vote, k=3, dim=1, largest=True, sorted=True)[1]
+            y_prob_all.append(prob.exp().cpu().numpy())
             y_prob.append(vote.cpu().numpy())
             y_true.append(by.cpu().numpy())
             y_miss = top3[:, 0] != by
@@ -50,8 +52,9 @@ def test_stochastic(model, dataloader, device, num_test_sample, path, mll):
         out.write(
             f"Test data: {accs}, nll {tnll:.4f}, nll miss {nll_miss:.4f}\n")
     y_prob = np.concatenate(y_prob, axis=0)
+    y_prob_all = np.concatenate(y_prob_all, axis=0)
     y_true = np.concatenate(y_true, axis=0)
-    return y_prob, y_true
+    return y_prob_all, y_prob, y_true
 
 
 def test_model_deterministic(model, dataloader, device, path):
@@ -126,7 +129,8 @@ if __name__ == "__main__":
                                 config['init_mean'], config['init_log_std'], config['noise_type'], config['noise_size'], single_prior_mean=config.get('single_prior_mean', False), single_prior_std=config.get('single_prior_std', False))
         model.load_state_dict(torch.load(checkpoint, map_location=device))
         model.to(device)
-        y_prob, y_true = test_stochastic(model, test_loader, device, args.num_samples,
+        y_prob_all, y_prob, y_true = test_stochastic(model, test_loader, device, args.num_samples,
                                          text_path, config['vb_iteration'] == 0)
+        plot_samples(y_true, y_prob_all, test_loader.dataset.data.numpy(), args.classes, os.path.join(args.root, 'samples.png'))
     plot_auc(y_true, y_prob, args.classes, args.n_rows, args.classes//args.n_rows, os.path.join(args.root, 'auc.pdf'))
     plot_calibration_curve(y_true, y_prob, args.classes, args.n_rows, args.classes//args.n_rows, os.path.join(args.root, 'calibration.pdf'))

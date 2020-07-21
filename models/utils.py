@@ -19,6 +19,7 @@ def count_parameters(model, logger):
     logger.info(f"Total Trainable Params: {total_params}")
     return total_params
 
+
 def swish(x):
     return x*torch.sigmoid(x)
 
@@ -83,7 +84,8 @@ class StochasticLinear(nn.Module):
 
     def stochastic_params(self):
         return chain.from_iterable([
-            self.fz.parameters(), self.prior_params.parameters(), self.posterior_params.parameters()
+            self.fz.parameters(), self.prior_params.parameters(
+            ), self.posterior_params.parameters()
         ])
 
     def prior(self):
@@ -128,7 +130,7 @@ class StochasticConv2d(nn.Module):
     def __init__(self, width, height, in_channels, out_channels, kernel_size, stride=1,
                  padding=0, dilation=1, groups=1, bias=True, padding_mode='zeros', init_method='normal', activation='relu',
                  init_mean=0.0, init_log_std=0.0, noise_type='full', noise_features=None, freeze_prior_mean=True, freeze_prior_std=False,
-                 single_prior_std=False, single_prior_mean=False):
+                 single_prior_std=False, single_prior_mean=False, use_abs=True):
         super(StochasticConv2d, self).__init__()
         out_width = get_dimension_size_conv(
             width, padding, stride, kernel_size)
@@ -147,8 +149,11 @@ class StochasticConv2d(nn.Module):
                 'mean': nn.Parameter(torch.full([1] if single_prior_mean else [height, width], init_mean, dtype=torch.float32), requires_grad=True),
                 'logstd': nn.Parameter(torch.full([1] if single_prior_mean else [height, width], init_log_std, dtype=torch.float32), requires_grad=True)
             })
-            self.__noise_transform = lambda z: F.conv2d(
-                z, self.fz.weight.abs(), None, stride, padding, dilation, groups)
+            if use_abs:
+                self.__noise_transform = lambda z: F.conv2d(
+                    z, self.fz.weight.abs(), None, stride, padding, dilation, groups)
+            else:
+                self.__noise_transform = lambda z: self.fz(z)
         elif noise_type == 'partial':
             self.prior_params = nn.ParameterDict({
                 'mean': nn.Parameter(torch.full([1] if single_prior_mean else [noise_features], init_mean, dtype=torch.float32), requires_grad=not freeze_prior_mean),
@@ -160,8 +165,12 @@ class StochasticConv2d(nn.Module):
             })
             self.fz = Linear(noise_features, out_width *
                              out_height, bias, init_method, activation)
-            self.__noise_transform = lambda z: F.linear(
-                z, self.fz.weight.abs()).reshape((-1, 1, out_height, out_width))
+            if use_abs:
+                self.__noise_transform = lambda z: F.linear(
+                    z, self.fz.weight.abs()).reshape((-1, 1, out_height, out_width))
+            else:
+                self.__noise_transform = lambda z: self.fz(
+                    z).reshape((-1, 1, out_height, out_width))
         else:
             raise NotImplementedError(
                 "Currently only support full noise channel")
@@ -171,7 +180,8 @@ class StochasticConv2d(nn.Module):
 
     def stochastic_params(self):
         return chain.from_iterable([
-            self.fz.parameters(), self.prior_params.parameters(), self.posterior_params.parameters()
+            self.fz.parameters(), self.prior_params.parameters(
+            ), self.posterior_params.parameters()
         ])
 
     def prior(self):

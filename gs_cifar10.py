@@ -57,18 +57,19 @@ def my_config():
     freeze_prior_std = False
     single_prior_mean = False
     single_prior_std = False
+    use_abs = True
     if not torch.cuda.is_available():
         device = 'cpu'
 
 
 @ex.capture
 def get_model(model_type, conv_hiddens, fc_hidden, init_method, activation, init_mean, init_log_std, freeze_prior_mean, freeze_prior_std,
-              noise_type, noise_size, device, adam_params, single_prior_mean, single_prior_std, lr_scheduler,
+              noise_type, noise_size, device, adam_params, single_prior_mean, single_prior_std, lr_scheduler, use_abs,
               det_params, sto_params):
     if model_type == 'stochastic':
         model = StochasticLeNet(32, 32, 1, conv_hiddens, fc_hidden, 10, init_method,
                                 activation, init_mean, init_log_std, noise_type, noise_size, freeze_prior_mean, freeze_prior_std,
-                                single_prior_mean, single_prior_std)
+                                single_prior_mean, single_prior_std, use_abs)
         optimizer = torch.optim.AdamW(
             [{
                 'params': model.parameters(),

@@ -51,12 +51,12 @@ class DeterministicLeNet(nn.Module):
 class StochasticLeNet(nn.Module):
     def __init__(self, width, height, in_channel, n_channels, n_hidden, n_output=10, init_method='normal', activation='relu',
                  init_mean=0.0, init_log_std=np.log(0.1), noise_type='full', noise_features=None, freeze_prior_mean=True, freeze_prior_std=False,
-                 single_prior_mean=False, single_prior_std=False):
+                 single_prior_mean=False, single_prior_std=False, use_abs=True):
         super(StochasticLeNet, self).__init__()
         self.conv1 = StochasticConv2d(width, height, in_channel, n_channels[0], kernel_size=5,
                                       init_method=init_method, activation=activation, freeze_prior_mean=freeze_prior_mean, freeze_prior_std=freeze_prior_std,
                                       init_mean=init_mean, init_log_std=init_log_std, noise_type=noise_type, noise_features=noise_features,
-                                      single_prior_mean=single_prior_mean, single_prior_std=single_prior_std)
+                                      single_prior_mean=single_prior_mean, single_prior_std=single_prior_std, use_abs=use_abs)
         self.act1 = get_activation(activation)
         width = get_dimension_size_conv(width, 0, 1, 5)
         height = get_dimension_size_conv(height, 0, 1, 5)

@@ -131,6 +131,6 @@ if __name__ == "__main__":
         model.to(device)
         y_prob_all, y_prob, y_true = test_stochastic(model, test_loader, device, args.num_samples,
                                          text_path, config['vb_iteration'] == 0)
-        plot_samples(y_true, y_prob_all, test_loader.dataset.data.numpy(), args.classes, os.path.join(args.root, 'samples.png'))
+        plot_samples(y_true, y_prob_all, torch.tensor(test_loader.dataset.data).numpy(), args.classes, os.path.join(args.root, 'samples.png'))
     plot_auc(y_true, y_prob, args.classes, args.n_rows, args.classes//args.n_rows, os.path.join(args.root, 'auc.pdf'))
     plot_calibration_curve(y_true, y_prob, args.classes, args.n_rows, args.classes//args.n_rows, os.path.join(args.root, 'calibration.pdf'))

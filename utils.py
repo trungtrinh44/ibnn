@@ -3,7 +3,7 @@ import itertools
 import matplotlib.pyplot as plt
 import numpy as np
 from scipy.stats import entropy
-from sklearn.metrics import auc, roc_curve
+from sklearn.metrics import auc, roc_curve, roc_auc_score
 
 
 def generate_weight_plot(weight: np.ndarray, nrows, ncols, **kwarg):
@@ -72,6 +72,9 @@ def plot_auc(y_true, y_prob, n_classes, nrows, ncols, save_path=None):
             ax.set_ylabel('True Positive Rate')
         if i / ncols >= nrows - 1:
             ax.set_xlabel('False Positive Rate')
+    ovr_score = roc_auc_score(y_true, y_prob, multi_class='ovr')
+    ovo_score = roc_auc_score(y_true, y_prob, multi_class='ovo')
+    fig.suptitle(f"AUC score: OVR {ovr_score:.4f}, OVO {ovo_score:.4f}")
     plt.tight_layout()
     if save_path is not None:
         plt.savefig(save_path)
@@ -88,9 +91,7 @@ def plot_samples(y_true, y_prob, test_image, n_classes, save_path=None):
         class_idx = cleartoblur[sort_y_test == i]
         class_idx = np.concatenate([class_idx[:5], class_idx[-5:]], axis=0)
         for idx, ax1, ax2 in zip(class_idx, im_ax, prob_ax):
-            image = test_image[idx]
-            if len(image.shape) > 2:
-                image = image.transpose((1, 2, 0))
+            image = test_image[idx].astype(np.float32)/255.0
             ax1.imshow(image)
             ax1.set_xticks([])
             ax1.set_yticks([])

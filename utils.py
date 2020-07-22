@@ -105,3 +105,13 @@ def plot_samples(y_true, y_prob, test_image, n_classes, save_path=None):
     plt.tight_layout()
     if save_path is not None:
         plt.savefig(save_path)
+
+def plot_prior_var(data, title, save_path):
+    plt.figure(figsize=(8, 6))
+    plt.imshow(data)
+    plt.colorbar()
+    plt.title(title)
+    plt.tight_layout()
+    if save_path is not None:
+        plt.savefig(save_path)
+        

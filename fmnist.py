@@ -11,7 +11,7 @@ from datasets import get_data_loader, infinite_wrapper
 from models import DeterministicLeNet, StochasticLeNet, count_parameters
 
 EXPERIMENT = 'fmnist'
-BASE_DIR = os.path.join('runs', EXPERIMENT)
+BASE_DIR = os.path.join('vb_runs', EXPERIMENT)
 ex = Experiment(EXPERIMENT)
 ex.observers.append(FileStorageObserver(BASE_DIR))
 
@@ -24,8 +24,10 @@ def my_config():
     batch_size = 128
     conv_hiddens = [32, 64]
     fc_hidden = 512
-    init_mean = 0.0
-    init_log_std = -2.3
+    init_prior_mean = 0.0
+    init_prior_log_std = -2.3
+    init_posterior_mean = 0.0
+    init_posterior_log_std = -2.3
     det_params = {
         'lr': 1e-4, 'weight_decay': 0.0
     }
@@ -59,12 +61,13 @@ def my_config():
 
 
 @ex.capture
-def get_model(model_type, conv_hiddens, fc_hidden, init_method, activation, init_mean, init_log_std, freeze_prior_mean, freeze_prior_std,
-              noise_type, noise_size, device, adam_params, single_prior_mean, single_prior_std, use_abs,
+def get_model(model_type, conv_hiddens, fc_hidden, init_method, activation, init_prior_mean, init_prior_log_std, freeze_prior_mean, freeze_prior_std,
+              noise_type, noise_size, device, adam_params, single_prior_mean, single_prior_std, use_abs, init_posterior_mean, init_posterior_log_std,
               det_params, sto_params):
     if model_type == 'stochastic':
         model = StochasticLeNet(28, 28, 1, conv_hiddens, fc_hidden, 10, init_method,
-                                activation, init_mean, init_log_std, noise_type, noise_size, freeze_prior_mean, freeze_prior_std,
+                                activation, init_prior_mean, init_prior_log_std, init_posterior_mean, init_posterior_log_std, 
+                                noise_type, noise_size, freeze_prior_mean, freeze_prior_std,
                                 single_prior_mean, single_prior_std, use_abs)
         optimizer = torch.optim.AdamW(
             [{

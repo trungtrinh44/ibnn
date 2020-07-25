@@ -4,3 +4,5 @@ data
 *.out
 *.slrm
 runs
+sample_noise_runs
+vb_runs

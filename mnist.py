@@ -139,7 +139,7 @@ def main(_run, model_type, num_train_sample, num_test_sample, device, validate_f
     train_loader, valid_loader, test_loader = get_dataloader()
     logger.info(
         f"Train size: {len(train_loader.dataset)}, validation size: {len(valid_loader.dataset)}, test size: {len(test_loader.dataset)}")
-    n_batch = len(train_loader)
+    n_batch = len(train_loader.dataset)
     train_loader = infinite_wrapper(train_loader)
     model, optimizer = get_model()
     count_parameters(model, logger)

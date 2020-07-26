@@ -126,7 +126,8 @@ if __name__ == "__main__":
     else:
         model = StochasticLeNet(args.width, args.height, args.in_channels, config['conv_hiddens'],
                                 config['fc_hidden'], args.classes, config['init_method'], config['activation'],
-                                config['init_prior_mean'], config['init_prior_log_std'], config['init_posterior_mean'], config['init_posterior_log_std'],
+                                config['init_prior_mean'], config['init_prior_log_std'], config[
+                                    'init_posterior_mean'], config['init_posterior_log_std'],
                                 config['noise_type'], config['noise_size'],
                                 single_prior_mean=config.get('single_prior_mean', False), single_prior_std=config.get('single_prior_std', False),
                                 use_abs=config.get('use_abs', True))
@@ -137,8 +138,14 @@ if __name__ == "__main__":
         plot_samples(y_true, y_prob_all, torch.tensor(test_loader.dataset.data).numpy(
         ), args.classes, os.path.join(args.root, 'samples.png'))
         if config['noise_type'] == 'full':
-            plot_prior_var(model.prior().scale.detach().cpu().numpy(), f"Standard deviation of prior of a trained model on {args.experiment.upper()}",
-                           os.path.join(args.root, 'prior_std.png'))
+            if config['vb_iteration'] == 0:
+                plot_prior_var(model.prior().scale.detach().cpu().numpy(), f"Standard deviation of prior of a trained model on {args.experiment.upper()}",
+                               os.path.join(args.root, 'prior_std.png'))
+            else:
+                plot_prior_var(model.posterior().scale.detach().cpu().numpy(), f"Standard deviation of posterior of a trained model on {args.experiment.upper()}",
+                               os.path.join(args.root, 'posterior_std.png'))
+                plot_prior_var(model.posterior().loc.detach().cpu().numpy(), f"Mean of posterior of a trained model on {args.experiment.upper()}",
+                               os.path.join(args.root, 'posterior_mean.png'))
     plot_auc(y_true, y_prob, args.classes, args.n_rows, args.classes //
              args.n_rows, os.path.join(args.root, 'auc.pdf'))
     plot_calibration_curve(y_true, y_prob, args.classes, args.n_rows,

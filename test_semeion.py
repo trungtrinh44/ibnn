@@ -143,7 +143,9 @@ if __name__ == "__main__":
     else:
         model = StochasticLeNet(28, 28, 1, config['conv_hiddens'],
                                 config['fc_hidden'], 10, config['init_method'], config['activation'],
-                                config['init_mean'], config['init_log_std'], config['noise_type'], config['noise_size'],
+                                config['init_prior_mean'], config['init_prior_log_std'], config[
+                                    'init_posterior_mean'], config['init_posterior_log_std'],
+                                config['noise_type'], config['noise_size'],
                                 single_prior_mean=config.get('single_prior_mean', False), single_prior_std=config.get('single_prior_std', False),
                                 use_abs=config.get('use_abs', True))
         model.load_state_dict(torch.load(checkpoint, map_location=device))

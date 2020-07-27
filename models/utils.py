@@ -64,14 +64,14 @@ class Linear(nn.Linear):
 class StochasticLinear(nn.Module):
     def __init__(self, in_features: int, noise_features: int, out_features: int, bias: bool = True,
                  init_prior_mean=0.0, init_prior_log_std=0.0, init_method='normal', activation='relu',
-                 freeze_prior_mean=True, freeze_prior_std=False):
+                 freeze_posterior_mean=True, freeze_prior_std=False):
         super(StochasticLinear, self).__init__()
         self.fx = Linear(in_features, out_features, bias,
                          init_method, activation)
         self.fz = Linear(noise_features, out_features,
                          False, init_method, activation)
         self.prior_params = nn.ParameterDict({
-            'mean': nn.Parameter(torch.full((noise_features,), init_prior_mean, dtype=torch.float32), requires_grad=not freeze_prior_mean),
+            'mean': nn.Parameter(torch.full((noise_features,), init_prior_mean, dtype=torch.float32), requires_grad=not freeze_posterior_mean),
             'logstd': nn.Parameter(torch.full((noise_features,), init_prior_log_std, dtype=torch.float32), requires_grad=not freeze_prior_std)
         })
         self.posterior_params = nn.ParameterDict({
@@ -129,7 +129,7 @@ class Conv2d(nn.Conv2d):
 class StochasticConv2d(nn.Module):
     def __init__(self, width, height, in_channels, out_channels, kernel_size, stride=1,
                  padding=0, dilation=1, groups=1, bias=True, padding_mode='zeros', init_method='normal', activation='relu',
-                 init_prior_mean=0.0, init_prior_log_std=0.0, init_posterior_mean=0.0, init_posterior_log_std=0.0, noise_type='full', noise_features=None, freeze_prior_mean=True, freeze_prior_std=False,
+                 init_prior_mean=0.0, init_prior_log_std=0.0, init_posterior_mean=0.0, init_posterior_log_std=0.0, noise_type='full', noise_features=None, freeze_posterior_mean=True, freeze_prior_std=False,
                  single_prior_std=False, single_prior_mean=False, use_abs=True):
         super(StochasticConv2d, self).__init__()
         out_width = get_dimension_size_conv(
@@ -142,11 +142,11 @@ class StochasticConv2d(nn.Module):
             self.fz = Conv2d(1, out_channels, kernel_size, stride, padding,
                              dilation, groups, bias, padding_mode, init_method, activation)
             self.prior_params = nn.ParameterDict({
-                'mean': nn.Parameter(torch.full([1] if single_prior_mean else [height, width], init_prior_mean, dtype=torch.float32), requires_grad=not freeze_prior_mean),
-                'logstd': nn.Parameter(torch.full([1] if single_prior_std else [height, width], init_prior_log_std, dtype=torch.float32), requires_grad=not freeze_prior_std)
+                'mean': nn.Parameter(torch.full([1] if single_prior_mean else [height, width], init_prior_mean, dtype=torch.float32), requires_grad=False),
+                'logstd': nn.Parameter(torch.full([1] if single_prior_std else [height, width], init_prior_log_std, dtype=torch.float32), requires_grad=False)
             })
             self.posterior_params = nn.ParameterDict({
-                'mean': nn.Parameter(torch.full([1] if single_prior_mean else [height, width], init_posterior_mean, dtype=torch.float32), requires_grad=True),
+                'mean': nn.Parameter(torch.full([1] if single_prior_mean else [height, width], init_posterior_mean, dtype=torch.float32), requires_grad=not freeze_posterior_mean),
                 'logstd': nn.Parameter(torch.full([1] if single_prior_mean else [height, width], init_posterior_log_std, dtype=torch.float32), requires_grad=True)
             })
             if use_abs:
@@ -156,11 +156,11 @@ class StochasticConv2d(nn.Module):
                 self.__noise_transform = lambda z: self.fz(z)
         elif noise_type == 'partial':
             self.prior_params = nn.ParameterDict({
-                'mean': nn.Parameter(torch.full([1] if single_prior_mean else [noise_features], init_prior_mean, dtype=torch.float32), requires_grad=not freeze_prior_mean),
-                'logstd': nn.Parameter(torch.full([1] if single_prior_mean else [noise_features], init_prior_log_std, dtype=torch.float32), requires_grad=not freeze_prior_std)
+                'mean': nn.Parameter(torch.full([1] if single_prior_mean else [noise_features], init_prior_mean, dtype=torch.float32), requires_grad=False),
+                'logstd': nn.Parameter(torch.full([1] if single_prior_mean else [noise_features], init_prior_log_std, dtype=torch.float32), requires_grad=False)
             })
             self.posterior_params = nn.ParameterDict({
-                'mean': nn.Parameter(torch.full([1] if single_prior_mean else [noise_features], init_posterior_mean, dtype=torch.float32), requires_grad=True),
+                'mean': nn.Parameter(torch.full([1] if single_prior_mean else [noise_features], init_posterior_mean, dtype=torch.float32), requires_grad=not freeze_posterior_mean),
                 'logstd': nn.Parameter(torch.full([1] if single_prior_mean else [noise_features], init_posterior_log_std, dtype=torch.float32), requires_grad=True)
             })
             self.fz = Linear(noise_features, out_width *

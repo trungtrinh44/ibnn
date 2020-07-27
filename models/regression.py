@@ -9,11 +9,11 @@ from itertools import chain
 
 class RegressionMLP(nn.Module):
     def __init__(self, n_input, n_output, n_hiddens, n_z, activation='relu', init_prior_mean=0.0, init_prior_log_std=np.log(0.1),
-                 init_method='normal', freeze_prior_mean=True, freeze_prior_std=False):
+                 init_method='normal', freeze_posterior_mean=True, freeze_prior_std=False):
         super(RegressionMLP, self).__init__()
         self.first = StochasticLinear(
             n_input, n_z, n_hiddens[0], True, init_prior_mean, init_prior_log_std,
-            init_method, activation, freeze_prior_mean, freeze_prior_std)
+            init_method, activation, freeze_posterior_mean, freeze_prior_std)
         self.act = get_activation(activation)
         self.layers = nn.Sequential(
             *(nn.Sequential(Linear(isize, osize, True, init_method, activation), get_activation(activation))

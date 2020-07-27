@@ -50,11 +50,11 @@ class DeterministicLeNet(nn.Module):
 
 class StochasticLeNet(nn.Module):
     def __init__(self, width, height, in_channel, n_channels, n_hidden, n_output=10, init_method='normal', activation='relu',
-                 init_prior_mean=0.0, init_prior_log_std=0.0, init_posterior_mean=0.0, init_posterior_log_std=0.0, noise_type='full', noise_features=None, freeze_prior_mean=True, freeze_prior_std=False,
+                 init_prior_mean=0.0, init_prior_log_std=0.0, init_posterior_mean=0.0, init_posterior_log_std=0.0, noise_type='full', noise_features=None, freeze_posterior_mean=True, freeze_prior_std=False,
                  single_prior_mean=False, single_prior_std=False, use_abs=True):
         super(StochasticLeNet, self).__init__()
         self.conv1 = StochasticConv2d(width, height, in_channel, n_channels[0], kernel_size=5,
-                                      init_method=init_method, activation=activation, freeze_prior_mean=freeze_prior_mean, freeze_prior_std=freeze_prior_std,
+                                      init_method=init_method, activation=activation, freeze_posterior_mean=freeze_posterior_mean, freeze_prior_std=freeze_prior_std,
                                       init_prior_mean=init_prior_mean, init_prior_log_std=init_prior_log_std, init_posterior_mean=init_posterior_mean,
                                       noise_type=noise_type, noise_features=noise_features, init_posterior_log_std=init_posterior_log_std,
                                       single_prior_mean=single_prior_mean, single_prior_std=single_prior_std, use_abs=use_abs)

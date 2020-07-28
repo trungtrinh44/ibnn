@@ -69,11 +69,7 @@ def get_model(model_type, conv_hiddens, fc_hidden, init_method, activation, init
             [{
                 'params': model.parameters(),
                 **det_params
-            }, {
-                'params': model.stochastic_params(),
-                **sto_params
-            }], **adam_params
-        )
+            }], **adam_params)
     else:
         model = DeterministicLeNet(
             28, 28, 1, conv_hiddens, fc_hidden, 10, init_method, activation)

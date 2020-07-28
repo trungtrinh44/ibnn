@@ -90,7 +90,7 @@ class StochasticLeNet(nn.Module):
         y_target = y.unsqueeze(1).repeat(1, L)
         logp = D.Categorical(logits=y_pred).log_prob(y_target)
         z_mean = z.mean(dim=1)
-        z_std = z.std(dim=1)
+        z_std = z.std(dim=1) + 1e-8
         posterior = D.Normal(z_mean, z_std)
         kl = D.kl_divergence(posterior, self.prior).mean()
         return -logp.mean(), kl

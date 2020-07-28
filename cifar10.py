@@ -11,7 +11,7 @@ from datasets import get_data_loader, infinite_wrapper
 from models import DeterministicLeNet, StochasticLeNet, count_parameters
 
 EXPERIMENT = 'cifar10'
-BASE_DIR = os.path.join('vb_runs', EXPERIMENT)
+BASE_DIR = os.path.join('layer_runs', EXPERIMENT)
 ex = Experiment(EXPERIMENT)
 ex.observers.append(FileStorageObserver(BASE_DIR))
 
@@ -25,9 +25,9 @@ def my_config():
     conv_hiddens = [32, 64]
     fc_hidden = 512
     init_prior_mean = 0.0
-    init_prior_log_std = -2.3
-    init_posterior_mean = 0.0
-    init_posterior_log_std = -2.3
+    init_prior_std = 1.0
+    init_dist_mean = 0.0
+    init_dist_std = 1.0
     det_params = {
         'lr': 1e-4, 'weight_decay': 0.0
     }
@@ -42,8 +42,8 @@ def my_config():
         'betas': (0.9, 0.999),
         'eps': 1e-8
     }
-    mll_iteration = 400000
-    vb_iteration = 0
+    mll_iteration = 0
+    vb_iteration = 400000
     noise_type = 'full'
     noise_size = [32, 32]
     init_method = 'normal'
@@ -55,24 +55,20 @@ def my_config():
     num_test_sample = 200
     logging_freq = 500
     device = 'cuda'
-    freeze_posterior_mean = True
-    freeze_prior_std = False
-    single_prior_mean = False
-    single_prior_std = False
-    use_abs = True
+
+    use_abs = False
     if not torch.cuda.is_available():
         device = 'cpu'
 
 
 @ex.capture
-def get_model(model_type, conv_hiddens, fc_hidden, init_method, activation, init_prior_mean, init_prior_log_std, freeze_posterior_mean, freeze_prior_std,
-              noise_type, noise_size, device, adam_params, single_prior_mean, single_prior_std, lr_scheduler, use_abs, init_posterior_mean, init_posterior_log_std,
+def get_model(model_type, conv_hiddens, fc_hidden, init_method, activation, init_prior_mean, init_prior_std,
+              noise_type, noise_size, device, adam_params, lr_scheduler, use_abs, init_dist_mean, init_dist_std,
               det_params, sto_params):
     if model_type == 'stochastic':
         model = StochasticLeNet(32, 32, 3, conv_hiddens, fc_hidden, 10, init_method,
-                                activation, init_prior_mean, init_prior_log_std, init_posterior_mean, init_posterior_log_std,
-                                noise_type, noise_size, freeze_posterior_mean, freeze_prior_std,
-                                single_prior_mean, single_prior_std, use_abs)
+                                activation, init_dist_mean, init_dist_std, init_prior_mean, init_prior_std,
+                                noise_type, noise_size, use_abs)
         optimizer = torch.optim.AdamW(
             [{
                 'params': model.parameters(),

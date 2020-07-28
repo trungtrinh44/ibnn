@@ -8,11 +8,11 @@ from itertools import chain
 
 
 class RegressionMLP(nn.Module):
-    def __init__(self, n_input, n_output, n_hiddens, n_z, activation='relu', init_prior_mean=0.0, init_prior_log_std=np.log(0.1),
+    def __init__(self, n_input, n_output, n_hiddens, n_z, activation='relu', init_prior_mean=0.0, init_prior_std=np.log(0.1),
                  init_method='normal', freeze_posterior_mean=True, freeze_prior_std=False):
         super(RegressionMLP, self).__init__()
         self.first = StochasticLinear(
-            n_input, n_z, n_hiddens[0], True, init_prior_mean, init_prior_log_std,
+            n_input, n_z, n_hiddens[0], True, init_prior_mean, init_prior_std,
             init_method, activation, freeze_posterior_mean, freeze_prior_std)
         self.act = get_activation(activation)
         self.layers = nn.Sequential(
@@ -20,7 +20,7 @@ class RegressionMLP(nn.Module):
               for isize, osize in zip(n_hiddens[:-1], n_hiddens[1:])),
             Linear(n_hiddens[-1], n_output, True, init_method, 'linear')
         )
-        self.likelihood_logstd = nn.Parameter(
+        self.likelihood_std = nn.Parameter(
             torch.zeros(()), requires_grad=False)
 
     def stochastic_params(self):
@@ -43,7 +43,7 @@ class RegressionMLP(nn.Module):
     def __logsample(self, x, y, L, sample_prior):
         y_pred = self.forward(x, L, sample_prior)
         y_target = y.unsqueeze(1).repeat(1, L)
-        return D.Normal(y_pred, self.likelihood_logstd.exp()).log_prob(y_target)
+        return D.Normal(y_pred, self.likelihood_std.exp()).log_prob(y_target)
 
     def __loglikelihood(self, x, y, L, sample_prior):
         logp = self.__logsample(x, y, L, sample_prior)
@@ -60,7 +60,7 @@ class RegressionMLP(nn.Module):
     def vb_loss(self, x, y, L):
         y_pred, z = self.forward(x, L, False, True)
         y_target = y.unsqueeze(1).repeat(1, L)
-        logp = D.Normal(y_pred, self.likelihood_logstd.exp()
+        logp = D.Normal(y_pred, self.likelihood_std.exp()
                         ).log_prob(y_target)
         return -logp.mean(), self.kl()
 

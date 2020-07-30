@@ -92,7 +92,7 @@ class StochasticLeNet(nn.Module):
         z_mean = z.mean(dim=1)
         z_std = z.std(dim=1) + 1e-8
         posterior = D.Normal(z_mean, z_std)
-        kl = D.kl_divergence(posterior, self.prior).mean()
+        kl = D.kl_divergence(posterior, self.prior).sum(dim=1).mean()
         return -logp.mean(), kl
 
     def forward(self, x, L, return_noise=False):

@@ -95,15 +95,15 @@ class StochasticLeNet(nn.Module):
         kl = D.kl_divergence(posterior, self.prior).sum(dim=1).mean()
         return -logp.mean(), kl
 
-    def forward(self, x, L, return_noise=False):
+    def forward(self, x, L, return_noise=False, return_conv=False):
         bs = x.size(0)
         x, z = self.conv1(x, L)
-        x = self.act1(x)
+        x = conv1_out = self.act1(x)
         x = x.reshape(bs*L, x.size(2), x.size(3), x.size(4))
         x = F.max_pool2d(x, 2)
 
         x = self.conv2(x)
-        x = self.act2(x)
+        x = conv2_out = self.act2(x)
         x = F.max_pool2d(x, 2)
 
         x = x.reshape((bs, L, -1))
@@ -112,4 +112,6 @@ class StochasticLeNet(nn.Module):
         x = self.fc2(x)
         if return_noise:
             return F.log_softmax(x, dim=-1), z
+        if return_conv:
+            return F.log_softmax(x, dim=-1), conv1_out, conv2_out.reshape(bs, L, conv2_out.size(1), conv2_out.size(2), conv2_out.size(3))
         return F.log_softmax(x, dim=-1)

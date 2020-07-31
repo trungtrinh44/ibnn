@@ -7,26 +7,28 @@ import torch
 
 from datasets import get_data_loader
 from models import DeterministicLeNet, StochasticLeNet
-from utils import plot_auc, plot_calibration_curve, plot_samples, plot_prior_var
+from utils import (plot_auc, plot_calibration_curve, plot_filters,
+                   plot_prior_var, plot_samples)
 
 
-def test_stochastic(model, dataloader, device, num_test_sample, path, mll):
+def test_stochastic(model, dataloader, device, num_test_sample, path, n_noise):
     tnll = 0
     acc = [0, 0, 0]
     nll_miss = 0
     y_prob = []
     y_true = []
     y_prob_all = []
-    if mll:
-        func = model.marginal_loglikelihood_loss
-    else:
-        func = model.negative_loglikelihood
+    conv1_outs = []
+    conv2_outs = []
+    func = model.negative_loglikelihood
     model.eval()
     with torch.no_grad():
         for bx, by in dataloader:
             bx = bx.to(device)
             by = by.to(device)
-            prob = model(bx, num_test_sample, mll)
+            prob, c1o, c2o = model(bx, num_test_sample, return_conv=True)
+            conv1_outs.append(c1o[:, :n_noise].cpu().numpy())
+            conv2_outs.append(c2o[:, :n_noise].cpu().numpy())
             tnll += func(bx, by,
                          num_test_sample).item() * len(by)
             vote = prob.exp().mean(dim=1)
@@ -54,7 +56,9 @@ def test_stochastic(model, dataloader, device, num_test_sample, path, mll):
     y_prob = np.concatenate(y_prob, axis=0)
     y_prob_all = np.concatenate(y_prob_all, axis=0)
     y_true = np.concatenate(y_true, axis=0)
-    return y_prob_all, y_prob, y_true
+    conv1_outs = np.concatenate(conv1_outs, axis=0)
+    conv2_outs = np.concatenate(conv2_outs, axis=0)
+    return y_prob_all, y_prob, y_true, conv1_outs, conv2_outs
 
 
 def test_model_deterministic(model, dataloader, device, path):
@@ -107,6 +111,7 @@ if __name__ == "__main__":
     parser.add_argument('--experiment', '-e', type=str, default='mnist')
     parser.add_argument('--batch_size', '-b', type=int, default=64)
     parser.add_argument('--n_rows', '-r', type=int, default=2)
+    parser.add_argument('--n_noise', type=int, default=5)
     args = parser.parse_args()
 
     device = args.device if torch.cuda.is_available() else 'cpu'
@@ -126,26 +131,16 @@ if __name__ == "__main__":
     else:
         model = StochasticLeNet(args.width, args.height, args.in_channels, config['conv_hiddens'],
                                 config['fc_hidden'], args.classes, config['init_method'], config['activation'],
-                                config['init_prior_mean'], config['init_prior_log_std'], config[
-                                    'init_posterior_mean'], config['init_posterior_log_std'],
-                                config['noise_type'], config['noise_size'],
-                                single_prior_mean=config.get('single_prior_mean', False), single_prior_std=config.get('single_prior_std', False),
-                                use_abs=config.get('use_abs', True))
+                                config['init_dist_mean'], config['init_dist_std'], config['init_prior_mean'], config['init_prior_std'],
+                                config['noise_type'], config['noise_size'], use_abs=config.get('use_abs', True))
         model.load_state_dict(torch.load(checkpoint, map_location=device))
         model.to(device)
-        y_prob_all, y_prob, y_true = test_stochastic(model, test_loader, device, args.num_samples,
-                                                     text_path, config['vb_iteration'] == 0)
-        plot_samples(y_true, y_prob_all, torch.tensor(test_loader.dataset.data).numpy(
-        ), args.classes, os.path.join(args.root, 'samples.png'))
-        if config['noise_type'] == 'full':
-            if config['vb_iteration'] == 0:
-                plot_prior_var(model.prior().scale.detach().cpu().numpy(), f"Standard deviation of prior of a trained model on {args.experiment.upper()}",
-                               os.path.join(args.root, 'prior_std.png'))
-            else:
-                plot_prior_var(model.posterior().scale.detach().cpu().numpy(), f"Standard deviation of posterior of a trained model on {args.experiment.upper()}",
-                               os.path.join(args.root, 'posterior_std.png'))
-                plot_prior_var(model.posterior().loc.detach().cpu().numpy(), f"Mean of posterior of a trained model on {args.experiment.upper()}",
-                               os.path.join(args.root, 'posterior_mean.png'))
+        y_prob_all, y_prob, y_true, conv1_outs, conv2_outs = test_stochastic(model, test_loader, device,
+                                                                             args.num_samples, text_path, n_noise=args.n_noise)
+        test_image = torch.tensor(test_loader.dataset.data).numpy()
+        plot_samples(y_true, y_prob_all, test_image,
+                     args.classes, os.path.join(args.root, 'samples.png'))
+        plot_filters(y_true, y_prob_all, test_image, args.classes, conv1_outs, conv2_outs, args.root, n_noise=args.n_noise, n_samples=1)
     plot_auc(y_true, y_prob, args.classes, args.n_rows, args.classes //
              args.n_rows, os.path.join(args.root, 'auc.pdf'))
     plot_calibration_curve(y_true, y_prob, args.classes, args.n_rows,

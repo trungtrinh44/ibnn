@@ -1,9 +1,10 @@
 import itertools
+import os
 
 import matplotlib.pyplot as plt
 import numpy as np
 from scipy.stats import entropy
-from sklearn.metrics import auc, roc_curve, roc_auc_score
+from sklearn.metrics import auc, roc_auc_score, roc_curve
 
 
 def generate_weight_plot(weight: np.ndarray, nrows, ncols, **kwarg):
@@ -80,31 +81,77 @@ def plot_auc(y_true, y_prob, n_classes, nrows, ncols, save_path=None):
         plt.savefig(save_path)
 
 
-def plot_samples(y_true, y_prob, test_image, n_classes, save_path=None):
-    cleartoblur = entropy(y_prob.mean(axis=1), axis=1).argsort()
+def sort_clear2blur(y_prob):
+    return entropy(y_prob.mean(axis=1), axis=1).argsort()
+
+
+def plot_image_filters(image, conv1, conv2, n_noise=5, save_path=None):
+    n_filter = 64
+    fig = plt.figure(figsize=((n_filter+2)*1, n_noise*5))
+    gs = fig.add_gridspec(n_noise*2, 64+2)
+    ax = fig.add_subplot(gs[0, :2])
+    ax.set_title('image')
+    ax.imshow(image, cmap='gray')
+    ax.set_xticks([])
+    ax.set_yticks([])
+    for i_noise in range(n_noise):
+        for i_filter in range(32):
+            ax = fig.add_subplot(gs[i_noise, 2*i_filter+2:2*i_filter+4])
+            if i_noise % n_noise == 0:
+                ax.set_title(f'filter {i_filter+1}')
+            ax.imshow(conv1[i_noise, i_filter], cmap='gray')
+            ax.set_xticks([])
+            ax.set_yticks([])
+    for i_noise in range(n_noise):
+        for i_filter in range(64):
+            ax = fig.add_subplot(gs[i_noise+n_noise, i_filter+2])
+            if i_noise % n_noise == 0:
+                ax.set_title(f'filter {i_filter+1}')
+            ax.imshow(conv2[i_noise, i_filter], cmap='gray')
+            ax.set_xticks([])
+            ax.set_yticks([])
+    plt.tight_layout()
+    if save_path is not None:
+        plt.savefig(save_path)
+
+def plot_filters(y_true, y_prob, test_image, n_classes, conv1, conv2, root, n_noise=5, n_samples=2):
+    cleartoblur = sort_clear2blur(y_prob)
     sort_y_test = y_true[cleartoblur]
-    fig, axes = plt.subplots(nrows=2*n_classes, ncols=10, figsize=(4*10, 8*n_classes),
-                             sharey='row', gridspec_kw={'height_ratios': [2, 1]*n_classes})
+    for i_class in range(n_classes):
+        class_idx = cleartoblur[sort_y_test == i_class]
+        class_idx = np.concatenate([class_idx[:n_samples], class_idx[-n_samples:]], axis=0)
+        for idx, image_idx in enumerate(class_idx):
+            image = test_image[image_idx].astype(np.float32)/255.0
+            plot_image_filters(image, conv1[image_idx], conv2[image_idx], n_noise, os.path.join(root, f'{i_class}_{idx}.png'))
+
+
+def plot_samples(y_true, y_prob, test_image, n_classes, save_path=None, n_samples=2):
+    cleartoblur = sort_clear2blur(y_prob)
+    sort_y_test = y_true[cleartoblur]
+    fig, axes = plt.subplots(nrows=n_samples*4, ncols=n_classes, figsize=(4*n_classes, n_samples*4*4),
+                             sharey='row', gridspec_kw={'height_ratios': [2, 1]*n_samples*2})
     for i in range(n_classes):
-        im_ax = axes[2*i]
-        prob_ax = axes[2*i + 1]
+        im_ax = [axes[2*j][i] for j in range(4)]
+        prob_ax = [axes[2*j+1][i] for j in range(4)]
         class_idx = cleartoblur[sort_y_test == i]
-        class_idx = np.concatenate([class_idx[:5], class_idx[-5:]], axis=0)
+        class_idx = np.concatenate(
+            [class_idx[:n_samples], class_idx[-n_samples:]], axis=0)
         for idx, ax1, ax2 in zip(class_idx, im_ax, prob_ax):
             image = test_image[idx].astype(np.float32)/255.0
-            ax1.imshow(image)
+            ax1.imshow(image, cmap='gray')
             ax1.set_xticks([])
             ax1.set_yticks([])
-            parts = ax2.violinplot(y_prob[idx], positions=np.arange(10))
+            parts = ax2.violinplot(y_prob[idx], positions=np.arange(n_classes))
             for pc in parts['bodies']:
                 pc.set_edgecolor('black')
             for j in range(10):
                 ax2.plot(np.random.normal(j, 0.04, len(
                     y_prob[idx, :, j])), y_prob[idx, :, j], 'b.', alpha=0.1)
-            ax2.set_xticks(np.arange(10))
+            ax2.set_xticks(np.arange(n_classes))
     plt.tight_layout()
     if save_path is not None:
         plt.savefig(save_path)
+
 
 def plot_prior_var(data, title, save_path):
     plt.figure(figsize=(8, 6))
@@ -114,4 +161,3 @@ def plot_prior_var(data, title, save_path):
     plt.tight_layout()
     if save_path is not None:
         plt.savefig(save_path)
-        

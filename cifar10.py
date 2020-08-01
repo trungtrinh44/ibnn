@@ -55,7 +55,7 @@ def my_config():
     num_test_sample = 200
     logging_freq = 500
     device = 'cuda'
-
+    fc1_weight = 0.0
     use_abs = False
     if not torch.cuda.is_available():
         device = 'cpu'
@@ -131,7 +131,7 @@ def test_nll(model, loader, device, num_test_sample):
 
 
 @ex.automain
-def main(_run, model_type, num_train_sample, num_test_sample, device, validate_freq, mll_iteration, vb_iteration, logging_freq, kl_weight):
+def main(_run, model_type, num_train_sample, num_test_sample, device, validate_freq, mll_iteration, vb_iteration, logging_freq, kl_weight, fc1_weight):
     logger = get_logger()
     train_loader, valid_loader, test_loader = get_dataloader()
     logger.info(
@@ -253,8 +253,8 @@ def main(_run, model_type, num_train_sample, num_test_sample, device, validate_f
             optimizer.zero_grad()
             bx = bx.to(device)
             by = by.to(device)
-            pred = model(bx)
-            loss = torch.nn.functional.nll_loss(pred, by)
+            pred, fc1 = model(bx, True)
+            loss = torch.nn.functional.nll_loss(pred, by) + fc1_weight*(fc1**2).sum(dim=1).mean()
             loss.backward()
             optimizer.step()
             scheduler.step()

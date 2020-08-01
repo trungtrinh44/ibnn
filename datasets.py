@@ -70,6 +70,15 @@ def get_data_loader(dataset, batch_size=64, validation=False, validation_fractio
             train_loader = DataLoader(
                 train_data, batch_size=batch_size, pin_memory=True, shuffle=True)
             return train_loader, test_loader
+    if dataset == 'fmnist_mnist_test':
+        test_data = torchvision.datasets.FashionMNIST(root_dir, train=False, download=True,
+                                                      transform=torchvision.transforms.Compose([
+                                                          torchvision.transforms.ToTensor(),
+                                                          torchvision.transforms.Normalize(
+                                                              (0.1307,), (0.3081,))
+                                                      ]))
+        test_loader = DataLoader(test_data, batch_size=batch_size, pin_memory=True, shuffle=False)
+        return test_loader
     if dataset == 'cifar10':
         train_data = torchvision.datasets.CIFAR10(
             root_dir, train=True, download=True,

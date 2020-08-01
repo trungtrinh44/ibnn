@@ -31,7 +31,7 @@ class DeterministicLeNet(nn.Module):
         self.fc2 = Linear(n_hidden, n_output,
                           init_method=init_method, activation='linear')
 
-    def forward(self, x):
+    def forward(self, x, return_fc1=False):
         bs = x.size(0)
         x = self.conv1(x)
         x = self.act1(x)
@@ -42,9 +42,11 @@ class DeterministicLeNet(nn.Module):
         x = F.max_pool2d(x, 2)
 
         x = x.reshape((bs, -1))
-        x = self.fc1(x)
+        x = fc1 = self.fc1(x)
         x = self.act3(x)
         x = self.fc2(x)
+        if return_fc1:
+            return F.log_softmax(x, dim=-1), fc1
         return F.log_softmax(x, dim=-1)
 
 

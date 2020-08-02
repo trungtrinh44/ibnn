@@ -57,7 +57,7 @@ def my_config():
     device = 'cuda'
     fc1_weight = 0.0
     use_abs = False
-    kl_div_nbatch = True
+    kl_div_nbatch = False
     if not torch.cuda.is_available():
         device = 'cpu'
 

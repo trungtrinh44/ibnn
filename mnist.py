@@ -53,6 +53,7 @@ def my_config():
     device = 'cuda'
     fc1_weight = 0.0    
     use_abs = False
+    kl_div_nbatch = True
     if not torch.cuda.is_available():
         device = 'cpu'
 
@@ -126,12 +127,12 @@ def test_nll(model, loader, device, num_test_sample):
 
 
 @ex.automain
-def main(_run, model_type, num_train_sample, num_test_sample, device, validate_freq, mll_iteration, vb_iteration, logging_freq, kl_weight, fc1_weight):
+def main(_run, model_type, num_train_sample, num_test_sample, device, validate_freq, mll_iteration, vb_iteration, logging_freq, kl_weight, fc1_weight, kl_div_nbatch):
     logger = get_logger()
     train_loader, valid_loader, test_loader = get_dataloader()
     logger.info(
         f"Train size: {len(train_loader.dataset)}, validation size: {len(valid_loader.dataset)}, test size: {len(test_loader.dataset)}")
-    n_batch = len(train_loader.dataset)
+    n_batch = len(train_loader) if kl_div_nbatch else len(train_loader.dataset)
     train_loader = infinite_wrapper(train_loader)
     model, optimizer = get_model()
     count_parameters(model, logger)

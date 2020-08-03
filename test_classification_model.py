@@ -26,7 +26,7 @@ def test_stochastic(model, dataloader, device, num_test_sample, path, n_noise):
         for bx, by in dataloader:
             bx = bx.to(device)
             by = by.to(device)
-            prob, c1o, c2o = model(bx, num_test_sample, return_conv=True)
+            prob, c1o, c2o, _ = model(bx, num_test_sample, return_conv=True)
             conv1_outs.append(c1o[:, :n_noise].cpu().numpy())
             conv2_outs.append(c2o[:, :n_noise].cpu().numpy())
             tnll += func(bx, by,

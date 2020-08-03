@@ -11,7 +11,7 @@ def infinite_wrapper(loader):
             yield x
 
 
-def get_data_loader(dataset, batch_size=64, validation=False, validation_fraction=0.1, random_state=42, root_dir='data/'):
+def get_data_loader(dataset, batch_size=64, validation=False, validation_fraction=0.1, random_state=42, root_dir='data/', test_only=False):
     if dataset == 'mnist':
         train_data = torchvision.datasets.MNIST(root_dir, train=True, download=True,
                                                 transform=torchvision.transforms.Compose([
@@ -27,6 +27,8 @@ def get_data_loader(dataset, batch_size=64, validation=False, validation_fractio
                                                ]))
         test_loader = DataLoader(
             test_data, batch_size=batch_size, pin_memory=True, shuffle=False)
+        if test_only:
+            return test_loader
         if validation:
             train_idx, valid_idx = train_test_split(np.arange(len(train_data.targets)),
                                                     test_size=validation_fraction,
@@ -56,6 +58,8 @@ def get_data_loader(dataset, batch_size=64, validation=False, validation_fractio
                                                       ]))
         test_loader = DataLoader(
             test_data, batch_size=batch_size, pin_memory=True, shuffle=False)
+        if test_only:
+            return test_loader
         if validation:
             train_idx, valid_idx = train_test_split(np.arange(len(train_data.targets)),
                                                     test_size=validation_fraction,
@@ -77,7 +81,18 @@ def get_data_loader(dataset, batch_size=64, validation=False, validation_fractio
                                                           torchvision.transforms.Normalize(
                                                               (0.1307,), (0.3081,))
                                                       ]))
-        test_loader = DataLoader(test_data, batch_size=batch_size, pin_memory=True, shuffle=False)
+        test_loader = DataLoader(
+            test_data, batch_size=batch_size, pin_memory=True, shuffle=False)
+        return test_loader
+    if dataset == 'mnist_fmnist_test':
+        test_data = torchvision.datasets.MNIST(root_dir, train=False, download=True,
+                                               transform=torchvision.transforms.Compose([
+                                                   torchvision.transforms.ToTensor(),
+                                                   torchvision.transforms.Normalize(
+                                                       (0.2860,), (0.3205,))
+                                               ]))
+        test_loader = DataLoader(
+            test_data, batch_size=batch_size, pin_memory=True, shuffle=False)
         return test_loader
     if dataset == 'cifar10':
         train_data = torchvision.datasets.CIFAR10(
@@ -94,6 +109,8 @@ def get_data_loader(dataset, batch_size=64, validation=False, validation_fractio
                                                      torchvision.transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))]))
         test_loader = DataLoader(
             test_data, batch_size=batch_size, pin_memory=True, shuffle=False)
+        if test_only:
+            return test_loader
         if validation:
             valid_data = torchvision.datasets.CIFAR10(root_dir, train=True, download=True,
                                                       transform=torchvision.transforms.Compose([
@@ -129,6 +146,8 @@ def get_data_loader(dataset, batch_size=64, validation=False, validation_fractio
                                                          (0.4809,), (0.2174,))]))
         test_loader = DataLoader(
             test_data, batch_size=batch_size, pin_memory=True, shuffle=False)
+        if test_only:
+            return test_loader
         if validation:
             valid_data = torchvision.datasets.CIFAR10(root_dir, train=True, download=True,
                                                       transform=torchvision.transforms.Compose([
@@ -153,7 +172,8 @@ def get_data_loader(dataset, batch_size=64, validation=False, validation_fractio
     if dataset == 'semeion':
         test_data = torchvision.datasets.SEMEION(root_dir, download=True,
                                                  transform=torchvision.transforms.Compose([
-                                                     torchvision.transforms.Pad(6),
+                                                     torchvision.transforms.Pad(
+                                                         6),
                                                      torchvision.transforms.ToTensor(),
                                                      torchvision.transforms.Normalize(
                                                          (0.1307,), (0.3081,))

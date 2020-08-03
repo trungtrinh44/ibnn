@@ -110,10 +110,10 @@ class StochasticLeNet(nn.Module):
 
         x = x.reshape((bs, L, -1))
         x = z = self.fc1(x)
-        x = self.act3(x)
+        x = fc1 = self.act3(x)
         x = self.fc2(x)
         if return_noise:
             return F.log_softmax(x, dim=-1), z
         if return_conv:
-            return F.log_softmax(x, dim=-1), conv1_out, conv2_out.reshape(bs, L, conv2_out.size(1), conv2_out.size(2), conv2_out.size(3))
+            return F.log_softmax(x, dim=-1), conv1_out, conv2_out.reshape(bs, L, conv2_out.size(1), conv2_out.size(2), conv2_out.size(3)), fc1
         return F.log_softmax(x, dim=-1)

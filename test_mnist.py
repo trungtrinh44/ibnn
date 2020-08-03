@@ -114,13 +114,13 @@ if __name__ == "__main__":
     checkpoint = os.path.join(args.root, 'checkpoint.pt')
     with open(os.path.join(args.root, 'config.json')) as inp:
         config = json.load(inp)
-    test_loader = get_data_loader('fmnist_mnist_test', args.batch_size, False)
+    test_loader = get_data_loader('mnist_fmnist_test', args.batch_size, False)
     if config['model_type'] == 'deterministic':
         model = DeterministicLeNet(28, 28, 1,
                                    config['conv_hiddens'], config['fc_hidden'], 10, config['init_method'], config['activation'])
         model.load_state_dict(torch.load(checkpoint, map_location=device))
         model.to(device)
-        args.root = os.path.join(args.root, 'fmnist')
+        args.root = os.path.join(args.root, 'mnist')
         text_path = os.path.join(args.root, 'result.txt')
         os.makedirs(args.root, exist_ok=True)
         y_prob, y_true = test_model_deterministic(
@@ -132,7 +132,7 @@ if __name__ == "__main__":
                                 config['noise_type'], config['noise_size'], use_abs=config.get('use_abs', True))
         model.load_state_dict(torch.load(checkpoint, map_location=device))
         model.to(device)
-        args.root = os.path.join(args.root, 'fmnist')
+        args.root = os.path.join(args.root, 'mnist')
         text_path = os.path.join(args.root, 'result.txt')
         os.makedirs(args.root, exist_ok=True)
         y_prob_all, y_prob, y_true, conv1_outs, conv2_outs = test_stochastic(model, test_loader, device,

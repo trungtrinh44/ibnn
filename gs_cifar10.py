@@ -177,7 +177,6 @@ def main(_run, model_type, num_train_sample, num_test_sample, device, validate_f
                 logger.info("VB Epoch %d: loglike: %.4f, kl: %.4f",
                             i, loglike.item(), kl.item())
             if i % validate_freq == 0:
-                model.eval()
                 with torch.no_grad():
                     nll = test_nll(model, valid_loader)
                 if best_nll >= nll:
@@ -195,10 +194,7 @@ def main(_run, model_type, num_train_sample, num_test_sample, device, validate_f
         acc = 0
         nll_miss = 0
         model.eval()
-        if num_iterations == 0:
-            ll_func = model.marginal_loglikelihood_loss
-        else:
-            ll_func = model.negative_loglikelihood
+        ll_func = model.negative_loglikelihood
         with torch.no_grad():
             for bx, by in test_loader:
                 bx = bx.to(device)
@@ -245,7 +241,6 @@ def main(_run, model_type, num_train_sample, num_test_sample, device, validate_f
                 logger.info("Epoch %d: loss: %.4f",
                             i, loss.item())
             if i % validate_freq == 0:
-                model.eval()
                 with torch.no_grad():
                     nll = test_nll(model, valid_loader)
                 if best_nll >= nll:
@@ -262,7 +257,7 @@ def main(_run, model_type, num_train_sample, num_test_sample, device, validate_f
         tnll = 0
         acc = 0
         nll_miss = 0
-        model.eval()
+        model.train()
         ll_func = model.negative_loglikelihood
         with torch.no_grad():
             for bx, by in test_loader:

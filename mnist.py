@@ -8,7 +8,7 @@ from sacred import Experiment
 from sacred.observers import FileStorageObserver
 
 from datasets import get_data_loader, infinite_wrapper
-from models import DeterministicLeNet, StochasticLeNet, count_parameters
+from models import DeterministicLeNet, StochasticLeNet, DropoutLeNet, count_parameters
 
 EXPERIMENT = 'mnist'
 BASE_DIR = os.path.join('layer_runs', EXPERIMENT)
@@ -38,8 +38,7 @@ def my_config():
         'betas': (0.9, 0.999),
         'eps': 1e-8
     }
-    mll_iteration = 0
-    vb_iteration = 400000
+    num_iterations = 400000
     noise_type = 'full'
     noise_size = [32, 32]
     init_method = 'normal'
@@ -51,9 +50,10 @@ def my_config():
     num_test_sample = 200
     logging_freq = 500
     device = 'cuda'
-    fc1_weight = 0.0    
+    fc1_weight = 0.0
     use_abs = False
     kl_div_nbatch = False
+    dropout = 0.5  # for mc-dropout model
     if not torch.cuda.is_available():
         device = 'cpu'
 
@@ -61,11 +61,19 @@ def my_config():
 @ex.capture
 def get_model(model_type, conv_hiddens, fc_hidden, init_method, activation, init_prior_mean, init_prior_std,
               noise_type, noise_size, device, adam_params, use_abs, init_dist_mean, init_dist_std,
-              det_params, sto_params):
+              det_params, sto_params, dropout):
     if model_type == 'stochastic':
         model = StochasticLeNet(28, 28, 1, conv_hiddens, fc_hidden, 10, init_method,
                                 activation, init_dist_mean, init_dist_std, init_prior_mean, init_prior_std,
                                 noise_type, noise_size, use_abs)
+        optimizer = torch.optim.AdamW(
+            [{
+                'params': model.parameters(),
+                **det_params
+            }], **adam_params)
+    elif model_type == 'dropout':
+        model = DropoutLeNet(
+            28, 28, 1, conv_hiddens, fc_hidden, 10, init_method, activation, dropout)
         optimizer = torch.optim.AdamW(
             [{
                 'params': model.parameters(),
@@ -113,8 +121,11 @@ def test_mll(model, loader, device, num_test_sample):
 
 
 @ex.capture
-def test_nll(model, loader, device, num_test_sample):
-    model.eval()
+def test_nll(model, loader, device, num_test_sample, model_type):
+    if model_type == 'dropout':
+        model.train()
+    else:
+        model.eval()
     with torch.no_grad():
         nll = 0
         for bx, by in loader:
@@ -127,7 +138,7 @@ def test_nll(model, loader, device, num_test_sample):
 
 
 @ex.automain
-def main(_run, model_type, num_train_sample, num_test_sample, device, validate_freq, mll_iteration, vb_iteration, logging_freq, kl_weight, fc1_weight, kl_div_nbatch):
+def main(_run, model_type, num_train_sample, num_test_sample, device, validate_freq, num_iterations, logging_freq, kl_weight, fc1_weight, kl_div_nbatch):
     logger = get_logger()
     train_loader, valid_loader, test_loader = get_dataloader()
     logger.info(
@@ -141,41 +152,11 @@ def main(_run, model_type, num_train_sample, num_test_sample, device, validate_f
 
     # First train mll
     if model_type == 'stochastic':
-        best_mll = float('inf')
         model.train()
         train_iter = enumerate(train_loader, 1)
-        for i, (bx, by) in train_iter:
-            if i > mll_iteration:
-                break
-            bx = bx.to(device)
-            by = by.to(device)
-            optimizer.zero_grad()
-            mll = model.marginal_loglikelihood_loss(bx, by, num_train_sample)
-            mll.backward()
-            optimizer.step()
-            ex.log_scalar('mll.train', mll.item(), i)
-            if i % logging_freq == 0:
-                logger.info("MLL Epoch %d: train %.4f", i, mll)
-            if i % validate_freq == 0:
-                mll = test_mll(model, valid_loader)
-                if best_mll >= mll:
-                    best_mll = mll
-                    torch.save(model.state_dict(), checkpoint_dir)
-                    logger.info('Save checkpoint')
-                ex.log_scalar('mll.valid', mll, i)
-                logger.info("MLL Epoch %d: validation %.4f", i, mll)
-                mll = test_mll(model, test_loader)
-                ex.log_scalar('mll.test', mll, i)
-                logger.info("MLL Epoch %d: test %.4f", i, mll)
-                model.train()
-        if os.path.exists(checkpoint_dir):
-            model.load_state_dict(torch.load(
-                checkpoint_dir, map_location=device))
-    # Second train using VB
-        vb_iteration += mll_iteration
         best_nll = float('inf')
         for i, (bx, by) in train_iter:
-            if i > vb_iteration:
+            if i > num_iterations:
                 break
             bx = bx.to(device)
             by = by.to(device)
@@ -208,7 +189,7 @@ def main(_run, model_type, num_train_sample, num_test_sample, device, validate_f
         acc = 0
         nll_miss = 0
         model.eval()
-        if vb_iteration == 0:
+        if num_iterations == 0:
             ll_func = model.marginal_loglikelihood_loss
         else:
             ll_func = model.negative_loglikelihood
@@ -216,7 +197,71 @@ def main(_run, model_type, num_train_sample, num_test_sample, device, validate_f
             for bx, by in test_loader:
                 bx = bx.to(device)
                 by = by.to(device)
-                prob = model(bx, num_test_sample, vb_iteration == 0)
+                prob = model(bx, num_test_sample, num_iterations == 0)
+                tnll += ll_func(bx, by, num_test_sample).item() * len(by)
+                vote = prob.argmax(2)
+                onehot = torch.zeros(
+                    (vote.size(0), vote.size(1), 10), device=vote.device)
+                onehot.scatter_(2, vote.unsqueeze(2), 1)
+                vote = onehot.sum(dim=1)
+                vote /= vote.sum(dim=1, keepdims=True)
+                pred = vote.argmax(dim=1)
+
+                y_miss = pred != by
+                if y_miss.sum().item() > 0:
+                    by_miss = by[y_miss]
+                    bx_miss = bx[y_miss]
+                    nll_miss += ll_func(bx_miss, by_miss,
+                                        num_test_sample).item() * len(by_miss)
+                acc += (pred == by).sum().item()
+        nll_miss /= len(test_loader.dataset) - acc
+        tnll /= len(test_loader.dataset)
+        acc /= len(test_loader.dataset)
+        logger.info("Test data: acc %.4f, nll %.4f, nll miss %.4f",
+                    acc, tnll, nll_miss)
+    elif model_type == 'dropout':
+        model.train()
+        train_iter = enumerate(train_loader, 1)
+        best_nll = float('inf')
+        for i, (bx, by) in train_iter:
+            if i > num_iterations:
+                break
+            bx = bx.to(device)
+            by = by.to(device)
+            optimizer.zero_grad()
+            pred = model(bx, 1)
+            loss = torch.nn.functional.nll_loss(pred, by)
+            loss.backward()
+            optimizer.step()
+            ex.log_scalar('nll.train', loss.item(), i)
+            if i % logging_freq == 0:
+                logger.info("Epoch %d: loss: %.4f",
+                            i, loss.item())
+            if i % validate_freq == 0:
+                model.eval()
+                with torch.no_grad():
+                    nll = test_nll(model, valid_loader)
+                if best_nll >= nll:
+                    best_nll = nll
+                    torch.save(model.state_dict(), checkpoint_dir)
+                    logger.info('Save checkpoint')
+                ex.log_scalar('nll.valid', nll, i)
+                logger.info("Epoch %d: validation NLL %.4f", i, nll)
+                nll = test_nll(model, test_loader)
+                ex.log_scalar('nll.test', nll, i)
+                logger.info("Epoch %d: test NLL %.4f", i, nll)
+                model.train()
+        model.load_state_dict(torch.load(checkpoint_dir, map_location=device))
+        tnll = 0
+        acc = 0
+        nll_miss = 0
+        model.eval()
+        ll_func = model.negative_loglikelihood
+        with torch.no_grad():
+            for bx, by in test_loader:
+                bx = bx.to(device)
+                by = by.to(device)
+                prob = model(bx, num_test_sample)
                 tnll += ll_func(bx, by, num_test_sample).item() * len(by)
                 vote = prob.argmax(2)
                 onehot = torch.zeros(
@@ -242,7 +287,7 @@ def main(_run, model_type, num_train_sample, num_test_sample, device, validate_f
         model.train()
         best_nll = float('inf')
         for i, (bx, by) in enumerate(train_loader, 1):
-            if i > vb_iteration:
+            if i > num_iterations:
                 break
             optimizer.zero_grad()
             bx = bx.to(device)

@@ -6,6 +6,68 @@ from .utils import *
 from itertools import chain
 
 
+class DropoutLeNet(nn.Module):
+    def __init__(self, width, height, in_channel, n_channels, n_hidden, n_output=10, init_method=False, activation='relu', dropout=0.5):
+        super(DropoutLeNet, self).__init__()
+        self.conv1 = Conv2d(in_channel, n_channels[0], kernel_size=5,
+                            init_method=init_method, activation=activation)
+        self.act1 = get_activation(activation)
+        width = get_dimension_size_conv(width, 0, 1, 5)
+        height = get_dimension_size_conv(height, 0, 1, 5)
+        self.maxpool1 = nn.MaxPool2d(2)
+        width = get_dimension_size_conv(width, 0, 2, 2)
+        height = get_dimension_size_conv(height, 0, 2, 2)
+        self.conv2 = Conv2d(n_channels[0], n_channels[1], kernel_size=5,
+                            init_method=init_method, activation=activation)
+        self.act2 = get_activation(activation)
+        width = get_dimension_size_conv(width, 0, 1, 5)
+        height = get_dimension_size_conv(height, 0, 1, 5)
+        self.maxpool2 = nn.MaxPool2d(2)
+        width = get_dimension_size_conv(width, 0, 2, 2)
+        height = get_dimension_size_conv(height, 0, 2, 2)
+        self.fc1 = Linear(n_channels[1]*width*height, n_hidden,
+                          init_method=init_method, activation=activation)
+        self.act3 = get_activation(activation)
+        self.fc2 = Linear(n_hidden, n_output,
+                          init_method=init_method, activation='linear')
+        self.dropout = nn.Parameter(torch.tensor(dropout), requires_grad=False)
+
+    def __one_pass(self, x):
+        bs = x.size(0)
+        x = self.conv1(x)
+        x = F.dropout(x, p=self.dropout, training=True)
+        x = self.act1(x)
+        x = F.max_pool2d(x, 2)
+
+        x = self.conv2(x)
+        x = F.dropout(x, p=self.dropout, training=True)
+        x = self.act2(x)
+        x = F.max_pool2d(x, 2)
+
+        x = x.reshape((bs, -1))
+        x = self.fc1(x)
+        x = F.dropout(x, p=self.dropout, training=True)
+        x = self.act3(x)
+        x = self.fc2(x)
+        return F.log_softmax(x, dim=-1)
+
+    def forward(self, x, L=1):
+        if L <= 1:
+            return self.__one_pass(x)
+        else:
+            result = [
+                self.__one_pass(x).unsqueeze(1) for _ in range(L)
+            ]
+            return torch.cat(result, dim=1)
+
+    def negative_loglikelihood(self, x, y, L):
+        y_pred = self.forward(x, L)
+        y_target = y.unsqueeze(1).repeat(1, L)
+        logp = D.Categorical(logits=y_pred).log_prob(y_target)
+        logp = torch.logsumexp(
+            logp, dim=1) - torch.log(torch.tensor(L, dtype=torch.float32, device=logp.device))
+        return -logp.mean()
+
 class DeterministicLeNet(nn.Module):
     def __init__(self, width, height, in_channel, n_channels, n_hidden, n_output=10, init_method=False, activation='relu'):
         super(DeterministicLeNet, self).__init__()

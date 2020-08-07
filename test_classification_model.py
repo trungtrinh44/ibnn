@@ -155,14 +155,14 @@ if __name__ == "__main__":
         config = json.load(inp)
     test_loader = get_data_loader(args.experiment, args.batch_size, test_only=True)
     if config['model_type'] == 'deterministic':
-        model = DeterministicLeNet(28, 28, 1,
+        model = DeterministicLeNet(args.width, args.height, args.in_channels,
                                    config['conv_hiddens'], config['fc_hidden'], 10, config['init_method'], config['activation'])
         model.load_state_dict(torch.load(checkpoint, map_location=device))
         model.to(device)
         y_prob, y_true, acc, tnll, nll_miss = test_model_deterministic(
             model, test_loader, device)
     elif config['model_type'] == 'dropout':
-        model = DropoutLeNet(28, 28, 1,
+        model = DropoutLeNet(args.width, args.height, args.in_channels,
                              config['conv_hiddens'], config['fc_hidden'], 10, config['init_method'], config['activation'], config['dropout'])
         model.load_state_dict(torch.load(checkpoint, map_location=device))
         model.to(device)
@@ -171,7 +171,7 @@ if __name__ == "__main__":
         plot_samples(y_true, y_prob_all, test_image,
                      10, os.path.join(args.root, 'samples.png'))
     else:
-        model = StochasticLeNet(28, 28, 1, config['conv_hiddens'],
+        model = StochasticLeNet(args.width, args.height, args.in_channels, config['conv_hiddens'],
                                 config['fc_hidden'], 10, config['init_method'], config['activation'],
                                 config['init_dist_mean'], config['init_dist_std'], config['init_prior_mean'], config['init_prior_std'],
                                 config['noise_type'], config['noise_size'], use_abs=config.get('use_abs', True))

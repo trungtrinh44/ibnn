@@ -60,12 +60,14 @@ class DropoutLeNet(nn.Module):
             ]
             return torch.cat(result, dim=1)
 
-    def negative_loglikelihood(self, x, y, L):
+    def negative_loglikelihood(self, x, y, L, return_prob=False):
         y_pred = self.forward(x, L)
         y_target = y.unsqueeze(1).repeat(1, L)
         logp = D.Categorical(logits=y_pred).log_prob(y_target)
         logp = torch.logsumexp(
             logp, dim=1) - torch.log(torch.tensor(L, dtype=torch.float32, device=logp.device))
+        if return_prob:
+            return -logp.mean(), y_pred
         return -logp.mean()
 
 class DeterministicLeNet(nn.Module):

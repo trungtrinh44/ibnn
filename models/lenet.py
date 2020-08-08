@@ -153,7 +153,13 @@ class StochasticLeNet(nn.Module):
         self.act3 = get_activation(activation)
         self.fc2 = Linear(n_hidden, n_output,
                           init_method=init_method, activation='linear')
-        self.prior = D.Normal(init_prior_mean, init_prior_std)
+        self.prior_params = nn.ParameterDict({
+            'mean': nn.Parameter(torch.full((n_hidden,), init_prior_mean), requires_grad=False),
+            'scaletril': nn.Parameter(torch.cholesky(torch.eye(n_hidden)*init_prior_std), requires_grad=False)
+        })
+
+    def prior(self):
+        return D.MultivariateNormal(self.prior_params['mean'], scale_tril=self.prior_params['scaletril'])
 
     def negative_loglikelihood(self, x, y, L):
         y_pred = self.forward(x, L, False)
@@ -168,9 +174,13 @@ class StochasticLeNet(nn.Module):
         y_target = y.unsqueeze(1).repeat(1, L)
         logp = D.Categorical(logits=y_pred).log_prob(y_target)
         z_mean = z.mean(dim=1)
-        z_std = z.std(dim=1) + 1e-8
-        posterior = D.Normal(z_mean, z_std)
-        kl = D.kl_divergence(posterior, self.prior).sum(dim=1).mean()
+
+        z_cov = z - z_mean.unsqueeze(1)
+        z_cov = (z_cov.transpose(2, 1) @ z_cov) / (L-1)
+        z_cov = z_cov + torch.eye(z.size(-1), device=z.device)*1e-5
+        
+        posterior = D.MultivariateNormal(loc=z_mean, covariance_matrix=z_cov)
+        kl = D.kl_divergence(posterior, self.prior()).mean()
         return -logp.mean(), kl
 
     def forward(self, x, L, return_noise=False, return_conv=False):

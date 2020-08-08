@@ -32,29 +32,40 @@ class DropoutLeNet(nn.Module):
                           init_method=init_method, activation='linear')
         self.dropout = nn.Parameter(torch.tensor(dropout), requires_grad=False)
 
-    def __one_pass(self, x):
+    def __one_pass(self, x, return_conv=False):
         bs = x.size(0)
         x = self.conv1(x)
         x = F.dropout(x, p=self.dropout, training=True)
-        x = self.act1(x)
+        x = conv1 = self.act1(x)
         x = F.max_pool2d(x, 2)
 
         x = self.conv2(x)
         x = F.dropout(x, p=self.dropout, training=True)
-        x = self.act2(x)
+        x = conv2 = self.act2(x)
         x = F.max_pool2d(x, 2)
 
         x = x.reshape((bs, -1))
         x = self.fc1(x)
         x = F.dropout(x, p=self.dropout, training=True)
-        x = self.act3(x)
+        x = fc1 = self.act3(x)
         x = self.fc2(x)
+        if return_conv:
+            return F.log_softmax(x, dim=-1), conv1, conv2, fc1
         return F.log_softmax(x, dim=-1)
 
-    def forward(self, x, L=1):
+    def forward(self, x, L=1, return_conv=False):
         if L <= 1:
-            return self.__one_pass(x)
+            return self.__one_pass(x, return_conv)
         else:
+            if return_conv:
+                c1s, c2s, f1s, f2s = [], [], [], []
+                for _ in range(L):
+                    f2, c1, c2, f1 = self.__one_pass(x, return_conv)
+                    c1s.append(c1.unsqueeze_(1))
+                    c2s.append(c2.unsqueeze_(1))
+                    f1s.append(f1.unsqueeze_(1))
+                    f2s.append(f2.unsqueeze_(1))
+                return torch.cat(f2s, dim=1), torch.cat(c1s, dim=1), torch.cat(c2s, dim=1), torch.cat(f1s, dim=1)
             result = [
                 self.__one_pass(x).unsqueeze(1) for _ in range(L)
             ]
@@ -69,6 +80,7 @@ class DropoutLeNet(nn.Module):
         if return_prob:
             return -logp.mean(), y_pred
         return -logp.mean()
+
 
 class DeterministicLeNet(nn.Module):
     def __init__(self, width, height, in_channel, n_channels, n_hidden, n_output=10, init_method=False, activation='relu'):

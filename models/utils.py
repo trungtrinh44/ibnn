@@ -129,48 +129,58 @@ class Conv2d(nn.Conv2d):
 class StochasticConv2d(nn.Module):
     def __init__(self, width, height, in_channels, out_channels, kernel_size, stride=1,
                  padding=0, dilation=1, groups=1, bias=True, padding_mode='zeros', init_method='normal', activation='relu',
-                 init_dist_mean=0.0, init_dist_std=1.0, noise_type='full', noise_features=None, use_abs=True):
+                 prior_mean=0.0, prior_std=1.0, posterior_p=0.5, posterior_std=1.0):
         super(StochasticConv2d, self).__init__()
-        out_width = get_dimension_size_conv(
-            width, padding, stride, kernel_size)
-        out_height = get_dimension_size_conv(
-            height, padding, stride, kernel_size)
-        self.fx = Conv2d(in_channels, out_channels, kernel_size, stride, padding,
-                         dilation, groups, bias, padding_mode, init_method, activation)
-        if noise_type == 'full':
-            self.fz = Conv2d(1, out_channels, kernel_size, stride, padding,
-                             dilation, groups, bias, padding_mode, init_method, activation)
-            self.dist_params = nn.ParameterDict({
-                'mean': nn.Parameter(torch.full([height, width], init_dist_mean, dtype=torch.float32), requires_grad=False),
-                'std': nn.Parameter(torch.full([height, width], init_dist_std, dtype=torch.float32), requires_grad=False)
-            })
-            if use_abs:
-                self.__noise_transform = lambda z: F.conv2d(
-                    z, self.fz.weight.abs(), None, stride, padding, dilation, groups)
-            else:
-                self.__noise_transform = lambda z: self.fz(z)
-        elif noise_type == 'partial':
-            self.dist_params = nn.ParameterDict({
-                'mean': nn.Parameter(torch.full([noise_features], init_dist_mean, dtype=torch.float32), requires_grad=False),
-                'std': nn.Parameter(torch.full([noise_features], init_dist_std, dtype=torch.float32), requires_grad=False)
-            })
-            self.fz = Linear(noise_features, out_width *
-                             out_height, bias, init_method, activation)
-            if use_abs:
-                self.__noise_transform = lambda z: F.linear(
-                    z, self.fz.weight.abs()).reshape((-1, 1, out_height, out_width))
-            else:
-                self.__noise_transform = lambda z: self.fz(
-                    z).reshape((-1, 1, out_height, out_width))
-        else:
-            raise NotImplementedError(
-                "Currently only support full noise channel")
+        self.conv = Conv2d(in_channels, out_channels, kernel_size, stride, padding,
+                           dilation, groups, bias, padding_mode, init_method, activation)
+        self.posterior_params = nn.ParameterDict({
+            'p': nn.Parameter(torch.tensor([posterior_p, 1-posterior_p]), requires_grad=False),
+            'std': nn.Parameter(torch.tensor(posterior_std), requires_grad=False)
+        })
+        self.prior_params = nn.ParameterDict({
+            'mean': nn.Parameter(torch.tensor(prior_mean), requires_grad=False),
+            'std': nn.Parameter(torch.tensor(prior_std), requires_grad=False)
+        })
 
-    def dist(self):
-        return D.Normal(self.dist_params['mean'], self.dist_params['std'])
+    def draw_sample_from_x(self, x):
+        means = torch.cat([
+            torch.zeros_like(x).unsqueeze_(-1),
+            x.unsqueeze(-1)
+        ], dim=-1)
+        zero_mask = x == 0.0
+        x[zero_mask] = x[zero_mask] + 1e-8
+        normal = D.Normal(means, self.posterior_params['std'].data*x.unsqueeze(-1))
+        categorical = D.OneHotCategorical(probs=self.posterior_params['p'].data)
+        
+        p_sample = categorical.sample(x.shape)
+        x_sample = (p_sample*normal.rsample()).sum(dim=-1)
+        
+        return x_sample
+    
+    def kl(self, n_sample):
+        # Monte Carlo approximation for the weights KL
+        x = self.conv.weight
+        means = torch.cat([
+            torch.zeros_like(x).unsqueeze_(-1),
+            x.unsqueeze(-1)
+        ], dim=-1)
+        zero_mask = x == 0.0
+        x[zero_mask] = x[zero_mask] + 1e-8
+        normal = D.Normal(means, self.posterior_params['std'].data*x.unsqueeze(-1))
+        categorical = D.OneHotCategorical(probs=self.posterior_params['p'].data)
+        
+        p_sample = categorical.sample((n_sample,) + x.shape)
+        x_sample = (p_sample*normal.rsample((n_sample,))).sum(dim=-1)
 
-    def forward(self, x, L):
-        z = self.dist().sample((L, 1))  # [L, 1, H, W] or [L, 1, n_z]
-        fz = self.__noise_transform(z)
-        x = self.fx(x).unsqueeze_(1) + fz
-        return x, z
+        posterior_log_prob = torch.logsumexp(normal.log_prob(x_sample.unsqueeze(-1)) + self.posterior_params['p'].data.log(), -1)
+        prior_log_prob = self.prior().log_prob(x_sample)
+        logdiff = prior_log_prob - posterior_log_prob
+        return logdiff.mean(dim=0).sum()
+
+    def prior(self):
+        return D.Normal(self.prior_params['mean'], self.prior_params['std'])
+    
+    def forward(self, x):
+        x_sample = self.draw_sample_from_x(x)
+        output = self.conv(x_sample)
+        return output

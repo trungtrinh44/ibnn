@@ -61,66 +61,6 @@ class Linear(nn.Linear):
                 nn.init.constant_(self.bias, 0.1)
 
 
-class StochasticLinear(nn.Module):
-    def __init__(self, in_features: int, noise_features: int, out_features: int, bias: bool = True,
-                 prior_mean=0.0, prior_std=0.0, init_method='normal', activation='relu',
-                 posterior_p=0.5, posterior_std=1.0):
-        super(StochasticLinear, self).__init__()
-        self.fx = Linear(in_features, out_features, bias,
-                         init_method, activation)
-        self.posterior_params = nn.ParameterDict({
-            'p': nn.Parameter(torch.tensor([posterior_p, 1-posterior_p]), requires_grad=False),
-            'std': nn.Parameter(torch.tensor(posterior_std), requires_grad=False)
-        })
-        self.prior_params = nn.ParameterDict({
-            'mean': nn.Parameter(torch.tensor(prior_mean), requires_grad=False),
-            'std': nn.Parameter(torch.tensor(prior_std), requires_grad=False)
-        })
-
-    def draw_sample_from_x(self, x):
-        means = torch.cat([
-            torch.zeros_like(x).unsqueeze_(-1),
-            x.unsqueeze(-1)
-        ], dim=-1)
-        zero_mask = x == 0.0
-        x[zero_mask] = x[zero_mask] + 1e-8
-        normal = D.Normal(means, self.posterior_params['std'].data*x.unsqueeze(-1))
-        categorical = D.OneHotCategorical(probs=self.posterior_params['p'].data)
-        
-        p_sample = categorical.sample(x.shape)
-        x_sample = (p_sample*normal.rsample()).sum(dim=-1)
-        
-        return x_sample
-    
-    def kl(self, n_sample):
-        # Monte Carlo approximation for the weights KL
-        x = self.fx.weight
-        means = torch.cat([
-            torch.zeros_like(x).unsqueeze_(-1),
-            x.unsqueeze(-1)
-        ], dim=-1)
-        zero_mask = x == 0.0
-        x[zero_mask] = x[zero_mask] + 1e-8
-        normal = D.Normal(means, self.posterior_params['std'].data*x.unsqueeze(-1))
-        categorical = D.OneHotCategorical(probs=self.posterior_params['p'].data)
-        
-        p_sample = categorical.sample((n_sample,) + x.shape)
-        x_sample = (p_sample*normal.rsample((n_sample,))).sum(dim=-1)
-
-        posterior_log_prob = torch.logsumexp(normal.log_prob(x_sample.unsqueeze(-1)) + self.posterior_params['p'].data.log(), -1)
-        prior_log_prob = self.prior().log_prob(x_sample)
-        logdiff = prior_log_prob - posterior_log_prob
-        return logdiff.mean(dim=0).sum()
-
-    def prior(self):
-        return D.Normal(self.prior_params['mean'], self.prior_params['std'])
-    
-    def forward(self, x):
-        x_sample = self.draw_sample_from_x(x)
-        output = self.fx(x_sample)
-        return output
-
-
 class Conv2d(nn.Conv2d):
     def __init__(self, in_channels, out_channels, kernel_size, stride=1,
                  padding=0, dilation=1, groups=1, bias=True, padding_mode='zeros', init_method='normal', activation='relu'):
@@ -137,13 +77,10 @@ class Conv2d(nn.Conv2d):
                 nn.init.constant_(self.bias, 0.01)
 
 
-class StochasticConv2d(nn.Module):
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1,
-                 padding=0, dilation=1, groups=1, bias=True, padding_mode='zeros', init_method='normal', activation='relu',
-                 prior_mean=0.0, prior_std=1.0, posterior_p=0.5, posterior_std=1.0):
-        super(StochasticConv2d, self).__init__()
-        self.conv = Conv2d(in_channels, out_channels, kernel_size, stride, padding,
-                           dilation, groups, bias, padding_mode, init_method, activation)
+class StochasticWrapper(nn.Module):
+    def __init__(self, layer, prior_mean=0.0, prior_std=1.0, posterior_p=0.5, posterior_std=1.0):
+        super(StochasticWrapper, self).__init__()
+        self.layer = layer
         self.posterior_params = nn.ParameterDict({
             'p': nn.Parameter(torch.tensor([posterior_p, 1-posterior_p]), requires_grad=False),
             'std': nn.Parameter(torch.tensor(posterior_std), requires_grad=False)
@@ -153,7 +90,11 @@ class StochasticConv2d(nn.Module):
             'std': nn.Parameter(torch.tensor(prior_std), requires_grad=False)
         })
 
-    def draw_sample_from_x(self, x):
+    def __draw_sample_from_x(self, x, L=1, return_log_prob=False):
+        if L == 1:
+            n_sample = ()
+        else:
+            n_sample = (L,)
         means = torch.cat([
             torch.zeros_like(x).unsqueeze_(-1),
             x.unsqueeze(-1)
@@ -162,36 +103,26 @@ class StochasticConv2d(nn.Module):
         x[zero_mask] = x[zero_mask] + 1e-8
         normal = D.Normal(means, self.posterior_params['std'].data*x.unsqueeze(-1))
         categorical = D.OneHotCategorical(probs=self.posterior_params['p'].data)
-        
-        p_sample = categorical.sample(x.shape)
-        x_sample = (p_sample*normal.rsample()).sum(dim=-1)
-        
+
+        p_sample = categorical.sample(n_sample + x.shape)
+        x_sample = (p_sample*normal.rsample(n_sample)).sum(dim=-1)
+
+        if return_log_prob:
+            posterior_log_prob = torch.logsumexp(normal.log_prob(x_sample.unsqueeze(-1)) + self.posterior_params['p'].data.log(), -1)
+            return x_sample, posterior_log_prob
         return x_sample
-    
+
     def kl(self, n_sample):
         # Monte Carlo approximation for the weights KL
-        x = self.conv.weight
-        means = torch.cat([
-            torch.zeros_like(x).unsqueeze_(-1),
-            x.unsqueeze(-1)
-        ], dim=-1)
-        zero_mask = x == 0.0
-        x[zero_mask] = x[zero_mask] + 1e-8
-        normal = D.Normal(means, self.posterior_params['std'].data*x.unsqueeze(-1))
-        categorical = D.OneHotCategorical(probs=self.posterior_params['p'].data)
-        
-        p_sample = categorical.sample((n_sample,) + x.shape)
-        x_sample = (p_sample*normal.rsample((n_sample,))).sum(dim=-1)
-
-        posterior_log_prob = torch.logsumexp(normal.log_prob(x_sample.unsqueeze(-1)) + self.posterior_params['p'].data.log(), -1)
+        x_sample, posterior_log_prob = self.__draw_sample_from_x(self.layer.weight, L=n_sample, return_log_prob=True)
         prior_log_prob = self.prior().log_prob(x_sample)
         logdiff = prior_log_prob - posterior_log_prob
         return logdiff.mean(dim=0).sum()
 
     def prior(self):
         return D.Normal(self.prior_params['mean'], self.prior_params['std'])
-    
+
     def forward(self, x):
-        x_sample = self.draw_sample_from_x(x)
-        output = self.conv(x_sample)
+        x_sample = self.__draw_sample_from_x(x)
+        output = self.layer(x_sample)
         return output

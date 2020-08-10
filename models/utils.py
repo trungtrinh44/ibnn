@@ -32,7 +32,7 @@ class Swish(nn.Module):
 def get_activation(name: str):
     name = name.lower()
     if name == 'relu':
-        return nn.ReLU(inplace=True)
+        return nn.ReLU(inplace=False)
     if name == 'softplus':
         return nn.Softplus()
     if name == 'swish':

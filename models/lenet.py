@@ -5,6 +5,50 @@ import torch.nn.functional as F
 from .utils import *
 from itertools import chain
 
+class DetDropoutLeNet(nn.Module):
+    def __init__(self, width, height, in_channel, n_channels, n_hidden, n_output=10, init_method=False, activation='relu', dropout=0.5):
+        super(DetDropoutLeNet, self).__init__()
+        self.conv1 = Conv2d(in_channel, n_channels[0], kernel_size=5,
+                            init_method=init_method, activation=activation)
+        self.act1 = get_activation(activation)
+        width = get_dimension_size_conv(width, 0, 1, 5)
+        height = get_dimension_size_conv(height, 0, 1, 5)
+        self.maxpool1 = nn.MaxPool2d(2)
+        width = get_dimension_size_conv(width, 0, 2, 2)
+        height = get_dimension_size_conv(height, 0, 2, 2)
+        self.conv2 = Conv2d(n_channels[0], n_channels[1], kernel_size=5,
+                            init_method=init_method, activation=activation)
+        self.act2 = get_activation(activation)
+        width = get_dimension_size_conv(width, 0, 1, 5)
+        height = get_dimension_size_conv(height, 0, 1, 5)
+        self.maxpool2 = nn.MaxPool2d(2)
+        width = get_dimension_size_conv(width, 0, 2, 2)
+        height = get_dimension_size_conv(height, 0, 2, 2)
+        self.fc1 = Linear(n_channels[1]*width*height, n_hidden,
+                          init_method=init_method, activation=activation)
+        self.act3 = get_activation(activation)
+        self.fc2 = Linear(n_hidden, n_output,
+                          init_method=init_method, activation='linear')
+        self.dropout = nn.Parameter(torch.tensor(dropout), requires_grad=False)
+
+    def forward(self, x):
+        bs = x.size(0)
+        x = conv1 = self.conv1(x)
+        x = F.dropout(x, p=self.dropout, training=False)
+        x = self.act1(x)
+        x = F.max_pool2d(x, 2)
+
+        x = conv2 = self.conv2(x)
+        x = F.dropout(x, p=self.dropout, training=False)
+        x = self.act2(x)
+        x = F.max_pool2d(x, 2)
+
+        x = x.reshape((bs, -1))
+        x = fc1 = self.fc1(x)
+        x = F.dropout(x, p=self.dropout, training=False)
+        x = self.act3(x)
+        x = self.fc2(x)
+        return F.log_softmax(x, dim=-1)
 
 class DropoutLeNet(nn.Module):
     def __init__(self, width, height, in_channel, n_channels, n_hidden, n_output=10, init_method=False, activation='relu', dropout=0.5):
@@ -34,20 +78,20 @@ class DropoutLeNet(nn.Module):
 
     def __one_pass(self, x, return_conv=False):
         bs = x.size(0)
-        x = self.conv1(x)
+        x = conv1 = self.conv1(x)
         x = F.dropout(x, p=self.dropout, training=True)
-        x = conv1 = self.act1(x)
+        x = self.act1(x)
         x = F.max_pool2d(x, 2)
 
-        x = self.conv2(x)
+        x = conv2 = self.conv2(x)
         x = F.dropout(x, p=self.dropout, training=True)
-        x = conv2 = self.act2(x)
+        x = self.act2(x)
         x = F.max_pool2d(x, 2)
 
         x = x.reshape((bs, -1))
-        x = self.fc1(x)
+        x = fc1 = self.fc1(x)
         x = F.dropout(x, p=self.dropout, training=True)
-        x = fc1 = self.act3(x)
+        x = self.act3(x)
         x = self.fc2(x)
         if return_conv:
             return F.log_softmax(x, dim=-1), conv1, conv2, fc1
@@ -186,20 +230,21 @@ class StochasticLeNet(nn.Module):
     def forward(self, x, L, return_noise=False, return_conv=False):
         bs = x.size(0)
         x, z = self.conv1(x, L)
-        x = conv1_out = self.act1(x)
+        conv1_out = x
+        x = self.act1(x)
         x = x.reshape(bs*L, x.size(2), x.size(3), x.size(4))
         x = F.max_pool2d(x, 2)
 
-        x = self.conv2(x)
-        x = conv2_out = self.act2(x)
+        x = conv2_out = self.conv2(x)
+        x = self.act2(x)
         x = F.max_pool2d(x, 2)
 
         x = x.reshape((bs, L, -1))
-        x = z = self.fc1(x)
-        x = fc1 = self.act3(x)
+        x = z = fc1_out = self.fc1(x)
+        x = self.act3(x)
         x = self.fc2(x)
         if return_noise:
             return F.log_softmax(x, dim=-1), z
         if return_conv:
-            return F.log_softmax(x, dim=-1), conv1_out, conv2_out.reshape(bs, L, conv2_out.size(1), conv2_out.size(2), conv2_out.size(3)), fc1
+            return F.log_softmax(x, dim=-1), conv1_out, conv2_out.reshape(bs, L, conv2_out.size(1), conv2_out.size(2), conv2_out.size(3)), fc1_out
         return F.log_softmax(x, dim=-1)

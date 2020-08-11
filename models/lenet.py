@@ -176,10 +176,7 @@ class StochasticLeNet(nn.Module):
     def __init__(self, width, height, in_channel, n_channels, n_hidden, n_output=10, init_method='normal', activation='relu',
                  posterior_p=0.5, posterior_std=1.0, prior_mean=0.0, prior_std=1.0, **kargs):
         super(StochasticLeNet, self).__init__()
-        self.conv1 = StochasticWrapper(
-            Conv2d(in_channel, n_channels[0], kernel_size=5,
-                   init_method=init_method, activation=activation),
-            prior_mean=prior_mean, prior_std=prior_std, posterior_p=posterior_p, posterior_std=posterior_std)
+        self.conv1 = Conv2d(in_channel, n_channels[0], kernel_size=5, init_method=init_method, activation=activation)
         self.act1 = get_activation(activation)
         width = get_dimension_size_conv(width, 0, 1, 5)
         height = get_dimension_size_conv(height, 0, 1, 5)
@@ -205,17 +202,17 @@ class StochasticLeNet(nn.Module):
 
     def __one_pass(self, x, return_conv=False):
         bs = x.size(0)
-        x = conv1 = self.conv1(x)
-        x = self.act1(x)
+        x = self.conv1(x)
+        x = conv1 = self.act1(x)
         x = F.max_pool2d(x, 2)
 
-        x = conv2 = self.conv2(x)
-        x = self.act2(x)
+        x = self.conv2(x)
+        x = conv2 = self.act2(x)
         x = F.max_pool2d(x, 2)
 
         x = x.reshape((bs, -1))
-        x = fc1 = self.fc1(x)
-        x = self.act3(x)
+        x = self.fc1(x)
+        x = fc1 = self.act3(x)
         x = self.fc2(x)
         if return_conv:
             return F.log_softmax(x, dim=-1), conv1, conv2, fc1
@@ -252,5 +249,5 @@ class StochasticLeNet(nn.Module):
     def vb_loss(self, x, y, L):
         y_pred = self.forward(x)
         logp = D.Categorical(logits=y_pred).log_prob(y)
-        kl = self.conv1.kl(L) + self.conv2.kl(L) + self.fc1.kl(L) + self.fc2.kl(L)
+        kl = self.conv2.kl(L) + self.fc1.kl(L) + self.fc2.kl(L)
         return -logp.mean(), kl

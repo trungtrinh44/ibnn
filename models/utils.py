@@ -99,25 +99,26 @@ class StochasticWrapper(nn.Module):
             torch.zeros_like(x).unsqueeze_(-1),
             x.unsqueeze(-1)
         ], dim=-1)
-        zero_mask = (x == 0.0).float()
-        x = x*(1-zero_mask) + 1e-8*zero_mask
-        normal = D.Normal(means, self.posterior_params['std'].data*x.abs().unsqueeze(-1))
+        zero_mask = (x.detach() != 0.0).float()
+        std = self.posterior_params['std'].data*x.abs().unsqueeze(-1)
+        std = torch.max(std, torch.tensor(1e-9, device=std.device))
+        normal = D.Normal(means, std)
         categorical = D.OneHotCategorical(probs=self.posterior_params['p'].data)
 
         p_sample = categorical.sample(n_sample + x.shape)
         x_sample = (p_sample*normal.rsample(n_sample)).sum(dim=-1)
-
+        x_sample = x_sample * zero_mask
         if return_log_prob:
             posterior_log_prob = torch.logsumexp(normal.log_prob(x_sample.unsqueeze(-1)) + self.posterior_params['p'].data.log(), -1)
-            return x_sample, posterior_log_prob
+            return x_sample, posterior_log_prob*zero_mask
         return x_sample 
 
     def kl(self, n_sample):
         # Monte Carlo approximation for the weights KL
         x_sample, posterior_log_prob = self.draw_sample_from_x(self.layer.weight, L=n_sample, return_log_prob=True)
         prior_log_prob = self.prior().log_prob(x_sample)
-        logdiff = posterior_log_prob - prior_log_prob
-        return logdiff.mean(dim=0).sum()
+        logdiff = (posterior_log_prob - prior_log_prob).mean(dim=0)
+        return logdiff.sum()
 
     def prior(self):
         return D.Normal(self.prior_params['mean'], self.prior_params['std'])

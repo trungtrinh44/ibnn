@@ -77,13 +77,13 @@ class Conv2d(nn.Conv2d):
                 nn.init.constant_(self.bias, 0.01)
 
 
-class StochasticWrapper(nn.Module):
-    def __init__(self, layer, prior_mean=0.0, prior_std=1.0, posterior_p=0.5, posterior_std=1.0):
-        super(StochasticWrapper, self).__init__()
+class MixtureGaussianWrapper(nn.Module):
+    def __init__(self, layer, prior_mean=0.0, prior_std=1.0, posterior_p=0.5, posterior_std=1.0, train_posterior_std=False):
+        super(MixtureGaussianWrapper, self).__init__()
         self.layer = layer
         self.posterior_params = nn.ParameterDict({
             'p': nn.Parameter(torch.tensor([posterior_p, 1-posterior_p]), requires_grad=False),
-            'std': nn.Parameter(torch.tensor(posterior_std), requires_grad=False)
+            'std': nn.Parameter(torch.tensor(posterior_std), requires_grad=train_posterior_std)
         })
         self.prior_params = nn.ParameterDict({
             'mean': nn.Parameter(torch.tensor(prior_mean), requires_grad=False),
@@ -100,16 +100,16 @@ class StochasticWrapper(nn.Module):
             x.unsqueeze(-1)
         ], dim=-1)
         zero_mask = (x.detach() != 0.0).float()
-        std = self.posterior_params['std'].data*x.abs().unsqueeze(-1)
+        std = self.posterior_params['std']*x.abs().unsqueeze(-1)
         std = torch.max(std, torch.tensor(1e-9, device=std.device))
         normal = D.Normal(means, std)
-        categorical = D.OneHotCategorical(probs=self.posterior_params['p'].data)
+        categorical = D.OneHotCategorical(probs=self.posterior_params['p'])
 
         p_sample = categorical.sample(n_sample + x.shape)
         x_sample = (p_sample*normal.rsample(n_sample)).sum(dim=-1)
         x_sample = x_sample * zero_mask
         if return_log_prob:
-            posterior_log_prob = torch.logsumexp(normal.log_prob(x_sample.unsqueeze(-1)) + self.posterior_params['p'].data.log(), -1)
+            posterior_log_prob = torch.logsumexp(normal.log_prob(x_sample.unsqueeze(-1)) + self.posterior_params['p'].log(), -1)
             return x_sample, posterior_log_prob*zero_mask
         return x_sample 
 
@@ -119,6 +119,54 @@ class StochasticWrapper(nn.Module):
         prior_log_prob = self.prior().log_prob(x_sample)
         logdiff = (posterior_log_prob - prior_log_prob).mean(dim=0)
         return logdiff.sum()
+
+    def prior(self):
+        return D.Normal(self.prior_params['mean'], self.prior_params['std'])
+
+    def forward(self, x):
+        x_sample = self.draw_sample_from_x(x)
+        output = self.layer(x_sample)
+        return output
+
+class GaussianWrapper(nn.Module):
+    def __init__(self, layer, prior_mean=0.0, prior_std=1.0, posterior_std=1.0, train_posterior_std=False):
+        super(GaussianWrapper, self).__init__()
+        self.layer = layer
+        self.posterior_params = nn.ParameterDict({
+            'std': nn.Parameter(torch.tensor(posterior_std), requires_grad=train_posterior_std)
+        })
+        self.prior_params = nn.ParameterDict({
+            'mean': nn.Parameter(torch.tensor(prior_mean), requires_grad=False),
+            'std': nn.Parameter(torch.tensor(prior_std), requires_grad=False)
+        })
+
+    def draw_sample_from_x(self, x, L=1, return_log_prob=False):
+        if L == 1:
+            n_sample = ()
+        else:
+            n_sample = (L,)
+        means = x
+        zero_mask = (means.detach() != 0.0).float()
+        std = self.posterior_params['std']*means.abs()
+        std = torch.max(std, torch.tensor(1e-9, device=std.device))
+        normal = D.Normal(means, std)
+
+        x_sample = normal.rsample(n_sample)
+        x_sample = x_sample * zero_mask
+        if return_log_prob:
+            posterior_log_prob = normal.log_prob(x_sample)
+            return x_sample, posterior_log_prob*zero_mask
+        return x_sample 
+
+    def kl(self, n_sample):
+        # Monte Carlo approximation for the weights KL
+        means = self.layer.weight
+        zero_mask = (means.detach() != 0.0).float()
+        std = self.posterior_params['std']*means.abs()
+        std = torch.max(std, torch.tensor(1e-9, device=std.device))
+        normal = D.Normal(means, std)
+        kl = D.kl_divergence(normal, self.prior())
+        return kl.sum()
 
     def prior(self):
         return D.Normal(self.prior_params['mean'], self.prior_params['std'])

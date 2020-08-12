@@ -174,31 +174,36 @@ class DeterministicLeNet(nn.Module):
 
 class StochasticLeNet(nn.Module):
     def __init__(self, width, height, in_channel, n_channels, n_hidden, n_output=10, init_method='normal', activation='relu',
-                 posterior_p=0.5, posterior_std=1.0, prior_mean=0.0, prior_std=1.0, **kargs):
+                 posterior_p=0.5, posterior_std=1.0, prior_mean=0.0, prior_std=1.0, train_posterior_std=False,
+                 posterior_type='mixture_gaussian', **kargs):
+        if posterior_type == 'gaussian':
+            def wrapper(layer): return GaussianWrapper(
+                layer, prior_mean, prior_std, posterior_std, train_posterior_std)
+        else:
+            def wrapper(layer): return MixtureGaussianWrapper(layer, prior_mean=prior_mean, prior_std=prior_std, posterior_p=posterior_p,
+                                                              posterior_std=posterior_std, train_posterior_std=train_posterior_std)
         super(StochasticLeNet, self).__init__()
-        self.conv1 = Conv2d(in_channel, n_channels[0], kernel_size=5, init_method=init_method, activation=activation)
+        self.conv1 = Conv2d(
+            in_channel, n_channels[0], kernel_size=5, init_method=init_method, activation=activation)
         self.act1 = get_activation(activation)
         width = get_dimension_size_conv(width, 0, 1, 5)
         height = get_dimension_size_conv(height, 0, 1, 5)
         self.maxpool1 = nn.MaxPool2d(2)
         width = get_dimension_size_conv(width, 0, 2, 2)
         height = get_dimension_size_conv(height, 0, 2, 2)
-        self.conv2 = StochasticWrapper(Conv2d(n_channels[0], n_channels[1], kernel_size=5,
-                                              init_method=init_method, activation=activation),
-                                       prior_mean=prior_mean, prior_std=prior_std, posterior_p=posterior_p, posterior_std=posterior_std)
+        self.conv2 = wrapper(Conv2d(n_channels[0], n_channels[1], kernel_size=5,
+                                    init_method=init_method, activation=activation))
         self.act2 = get_activation(activation)
         width = get_dimension_size_conv(width, 0, 1, 5)
         height = get_dimension_size_conv(height, 0, 1, 5)
         self.maxpool2 = nn.MaxPool2d(2)
         width = get_dimension_size_conv(width, 0, 2, 2)
         height = get_dimension_size_conv(height, 0, 2, 2)
-        self.fc1 = StochasticWrapper(Linear(n_channels[1]*width*height, n_hidden,
-                                            init_method=init_method, activation=activation),
-                                     prior_mean=prior_mean, prior_std=prior_std, posterior_p=posterior_p, posterior_std=posterior_std)
+        self.fc1 = wrapper(Linear(n_channels[1]*width*height, n_hidden,
+                                  init_method=init_method, activation=activation))
         self.act3 = get_activation(activation)
-        self.fc2 = StochasticWrapper(Linear(n_hidden, n_output,
-                                            init_method=init_method, activation='linear'),
-                                     prior_mean=prior_mean, prior_std=prior_std, posterior_p=posterior_p, posterior_std=posterior_std)
+        self.fc2 = wrapper(Linear(n_hidden, n_output,
+                                  init_method=init_method, activation='linear'))
 
     def __one_pass(self, x, return_conv=False):
         bs = x.size(0)

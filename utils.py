@@ -117,12 +117,20 @@ def plot_image_filters(image, conv1, conv2, n_noise=5, save_path=None):
         plt.savefig(save_path)
     plt.close()
 
-def plot_error(x, mean, std, xlabel, legend, save_path):
-    _, ax = plt.subplots(figsize=(8, 6))
-    ax.plot(x, mean)
-    ax.fill_between(x, mean-std, mean+std, alpha=.3, label=legend)
+def plot_error(x, xlabel, mean1, std1, mean2, std2, legend1, legend2, ylabel1, ylabel2, save_path):
+    fig, ax = plt.subplots(figsize=(8, 6))
+    ax.plot(x, mean1)
+    ax.fill_between(x, mean1-std1, mean1+std1, alpha=.3, label=legend1)
     ax.set_xlabel(xlabel)
-    ax.legend()
+    ax.set_ylabel(ylabel1)
+
+    ax = ax.twinx()
+    ax.plot(x, mean2, color='g')
+    ax.fill_between(x, mean2-std2, mean2+std2, alpha=.3, label=legend2, color='g')
+    ax.set_ylabel(ylabel2)
+
+    fig.legend(loc="upper right", bbox_to_anchor=(1,1), bbox_transform=ax.transAxes)
+
     plt.tight_layout()
     plt.savefig(save_path)
     plt.close()

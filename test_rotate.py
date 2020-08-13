@@ -14,19 +14,30 @@ def draw_rotate(model, dataset, device, num_test_sample, degrees, path):
     model.eval()
     entropy_mean = []
     entropy_std = []
+    pred_means = []
+    pred_stds = []
     for degree in degrees:
         test_loader = get_data_loader(args.dataset, args.batch_size, False, test_only=True, degree=degree)
         entropies = []
+        pred_probs = []
         with torch.no_grad():
             for bx, by in test_loader:
                 bx = bx.to(device)
+                by = by.to(device)
                 prob = model(bx, num_test_sample)
-                pred_mean = prob.exp().mean(1).cpu().numpy()
-                entropies.append(entropy(pred_mean, axis=1))
+                pred_mean = prob.exp().mean(1)
+                entropies.append(entropy(pred_mean.cpu().numpy(), axis=1))
+                pred_probs.append(torch.distributions.Categorical(probs=pred_mean).log_prob(by).exp().cpu().numpy())
         entropies = np.concatenate(entropies, axis=0)
+        pred_probs = np.concatenate(pred_probs, axis=0)
         entropy_mean.append(entropies.mean())
         entropy_std.append(entropies.std())
-    plot_error(np.array(degrees), np.array(entropy_mean), np.array(entropy_std), 'Degree', 'Predictive entropy', path)
+        pred_means.append(pred_probs.mean())
+        pred_stds.append(pred_probs.std())
+    plot_error(x=degrees, xlabel='Degree',
+               mean1=np.array(entropy_mean), std1=np.array(entropy_std),
+               mean2=np.array(pred_means), std2=np.array(pred_stds),
+               legend1=r'$\mathcal{H}(y|x)$', legend2=r'$p(y=t|x)$', ylabel1='nats', ylabel2='probs', save_path=path)
 
 
 if __name__ == "__main__":
@@ -40,7 +51,7 @@ if __name__ == "__main__":
     parser.add_argument('--classes', '-c', type=int, default=10)
     parser.add_argument('--dataset', '-e', type=str, default='mnist')
     parser.add_argument('--batch_size', '-b', type=int, default=64)
-    parser.add_argument('--degrees', type=int, nargs='+', default=list(range(0, 180, 20)))
+    parser.add_argument('--degrees', type=int, nargs='+', default=list(range(0, 200, 20)))
     args = parser.parse_args()
 
     device = args.device if torch.cuda.is_available() else 'cpu'

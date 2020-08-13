@@ -161,7 +161,6 @@ class GaussianWrapper(nn.Module):
     def kl(self, n_sample):
         # Monte Carlo approximation for the weights KL
         means = self.layer.weight
-        zero_mask = (means.detach() != 0.0).float()
         std = self.posterior_params['std']*means.abs()
         std = torch.max(std, torch.tensor(1e-9, device=std.device))
         normal = D.Normal(means, std)

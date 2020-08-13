@@ -3,6 +3,8 @@ import os
 
 import numpy as np
 import torch
+# from torch import autograd
+# autograd.set_detect_anomaly(True)
 import torchvision
 from sacred import Experiment
 from sacred.observers import FileStorageObserver
@@ -11,7 +13,7 @@ from datasets import get_data_loader, infinite_wrapper
 from models import DeterministicLeNet, StochasticLeNet, DropoutLeNet, count_parameters
 
 EXPERIMENT = 'mnist'
-BASE_DIR = os.path.join('layer_runs', EXPERIMENT)
+BASE_DIR = os.path.join('implicit_runs', EXPERIMENT)
 ex = Experiment(EXPERIMENT)
 ex.observers.append(FileStorageObserver(BASE_DIR))
 
@@ -26,8 +28,8 @@ def my_config():
     fc_hidden = 512
     init_prior_mean = 0.0
     init_prior_std = 1.0
-    init_dist_mean = 0.0
-    init_dist_std = 1.0
+    posterior_p = 0.5
+    posterior_std = 1.0
     det_params = {
         'lr': 1e-4, 'weight_decay': 0.0
     }
@@ -47,12 +49,14 @@ def my_config():
     validation_fraction = 0.2
     validate_freq = 1000  # calculate validation frequency
     num_train_sample = 20
-    num_test_sample = 200
+    num_test_sample = 100
     logging_freq = 500
     device = 'cuda'
+    train_posterior_std = False
+    posterior_type = 'mixture_gaussian'
     fc1_weight = 0.0
     use_abs = False
-    kl_div_nbatch = False
+    kl_div_nbatch = True
     dropout = 0.5  # for mc-dropout model
     if not torch.cuda.is_available():
         device = 'cpu'
@@ -60,12 +64,11 @@ def my_config():
 
 @ex.capture
 def get_model(model_type, conv_hiddens, fc_hidden, init_method, activation, init_prior_mean, init_prior_std,
-              noise_type, noise_size, device, adam_params, use_abs, init_dist_mean, init_dist_std,
+              device, adam_params, posterior_p, posterior_std, train_posterior_std, posterior_type,
               det_params, sto_params, dropout):
     if model_type == 'stochastic':
-        model = StochasticLeNet(28, 28, 1, conv_hiddens, fc_hidden, 10, init_method,
-                                activation, init_dist_mean, init_dist_std, init_prior_mean, init_prior_std,
-                                noise_type, noise_size, use_abs)
+        model = StochasticLeNet(28, 28, 1, conv_hiddens, fc_hidden, 10, init_method, activation,
+                                posterior_p, posterior_std, init_prior_mean, init_prior_std, train_posterior_std, posterior_type)
         optimizer = torch.optim.AdamW(
             [{
                 'params': model.parameters(),

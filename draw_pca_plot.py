@@ -9,7 +9,7 @@ import torch
 from sklearn.decomposition import IncrementalPCA
 
 from datasets import get_data_loader
-from models import DeterministicLeNet, StochasticLeNet
+from models import DeterministicLeNet, StochasticLeNet, DropoutLeNet, get_model_from_config
 
 
 def draw_pca(model, dataloader, device, num_test_sample, path):
@@ -19,16 +19,16 @@ def draw_pca(model, dataloader, device, num_test_sample, path):
     fc2_outs = []
     labels = []
     model.eval()
-    pca1 = IncrementalPCA(n_components=2)
-    pca2 = IncrementalPCA(n_components=2)
-    pca3 = IncrementalPCA(n_components=2)
-    pca4 = IncrementalPCA(n_components=2)
+    pca1 = IncrementalPCA(n_components=3)
+    pca2 = IncrementalPCA(n_components=3)
+    pca3 = IncrementalPCA(n_components=3)
+    pca4 = IncrementalPCA(n_components=3)
     with torch.no_grad():
         for bx, by in dataloader:
             bx = bx.to(device)
             bs = by.shape[0]
-            fc2, c1o, c2o, fc1 = model(bx, num_test_sample, return_conv=True)
-            fc2, c1o, c2o, fc1 = fc2.cpu().numpy(), c1o.cpu().numpy(), c2o.cpu().numpy(), fc1.cpu().numpy()
+            _, c1o, c2o, fc1, fc2 = model(bx, num_test_sample, return_conv=True)
+            c1o, c2o, fc1, fc2 = c1o.cpu().numpy(), c2o.cpu().numpy(), fc1.cpu().numpy(), fc2.cpu().numpy()
             conv1_outs.append(c1o)
             conv2_outs.append(c2o)
             fc1_outs.append(fc1)
@@ -45,41 +45,52 @@ def draw_pca(model, dataloader, device, num_test_sample, path):
     labels = np.concatenate(labels, axis=0)
     class_names = [f"Class {x}" for x in labels]
     class_order = [f"Class {x}" for x in range(labels.max()+1)]
-    _, axes = plt.subplots(ncols=num_test_sample, figsize=(num_test_sample*6, 6), sharex='col', sharey='row')
+    _, axes = plt.subplots(ncols=num_test_sample, figsize=(
+        num_test_sample*6, 6), sharex='col', sharey='row')
     for i_noise in range(num_test_sample):
         ax = axes[i_noise]
-        value = pca1.transform(conv1_outs[:, i_noise].reshape(len(conv1_outs), -1))
-        sns.scatterplot(x=value[:,0], y=value[:,1], hue=class_names, hue_order=class_order, ax=ax)
+        value = pca1.transform(
+            conv1_outs[:, i_noise].reshape(len(conv1_outs), -1))
+        sns.scatterplot(x=value[:, 1], y=value[:, 2],
+                        hue=class_names, hue_order=class_order, ax=ax)
     plt.tight_layout()
     plt.savefig(os.path.join(path, 'conv1.png'))
     plt.close()
 
-    _, axes = plt.subplots(ncols=num_test_sample, figsize=(num_test_sample*6, 6), sharex='col', sharey='row')
+    _, axes = plt.subplots(ncols=num_test_sample, figsize=(
+        num_test_sample*6, 6), sharex='col', sharey='row')
     for i_noise in range(num_test_sample):
         ax = axes[i_noise]
-        value = pca2.transform(conv2_outs[:, i_noise].reshape(len(conv2_outs), -1))
-        sns.scatterplot(x=value[:,0], y=value[:,1], hue=class_names, hue_order=class_order, ax=ax)
+        value = pca2.transform(
+            conv2_outs[:, i_noise].reshape(len(conv2_outs), -1))
+        sns.scatterplot(x=value[:, 1], y=value[:, 2],
+                        hue=class_names, hue_order=class_order, ax=ax)
     plt.tight_layout()
     plt.savefig(os.path.join(path, 'conv2.png'))
     plt.close()
 
-    _, axes = plt.subplots(ncols=num_test_sample, figsize=(num_test_sample*6, 6), sharex='col', sharey='row')
+    _, axes = plt.subplots(ncols=num_test_sample, figsize=(
+        num_test_sample*6, 6), sharex='col', sharey='row')
     for i_noise in range(num_test_sample):
         ax = axes[i_noise]
         value = pca3.transform(fc1_outs[:, i_noise])
-        sns.scatterplot(x=value[:,0], y=value[:,1], hue=class_names, hue_order=class_order, ax=ax)
+        sns.scatterplot(x=value[:, 1], y=value[:, 2],
+                        hue=class_names, hue_order=class_order, ax=ax)
     plt.tight_layout()
     plt.savefig(os.path.join(path, 'fc1.png'))
     plt.close()
 
-    _, axes = plt.subplots(ncols=num_test_sample, figsize=(num_test_sample*6, 6), sharex='col', sharey='row')
+    _, axes = plt.subplots(ncols=num_test_sample, figsize=(
+        num_test_sample*6, 6), sharex='col', sharey='row')
     for i_noise in range(num_test_sample):
         ax = axes[i_noise]
         value = pca4.transform(fc2_outs[:, i_noise])
-        sns.scatterplot(x=value[:,0], y=value[:,1], hue=class_names, hue_order=class_order, ax=ax)
+        sns.scatterplot(x=value[:, 1], y=value[:, 2],
+                        hue=class_names, hue_order=class_order, ax=ax)
     plt.tight_layout()
     plt.savefig(os.path.join(path, 'fc2.png'))
     plt.close()
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -101,11 +112,9 @@ if __name__ == "__main__":
     with open(os.path.join(args.root, 'config.json')) as inp:
         config = json.load(inp)
     test_loader = get_data_loader(args.dataset, args.batch_size, False, test_only=True)
-    model = StochasticLeNet(args.width, args.height, args.in_channels, config['conv_hiddens'],
-                            config['fc_hidden'], args.classes, config['init_method'], config['activation'],
-                            config['init_dist_mean'], config['init_dist_std'], config['init_prior_mean'], config['init_prior_std'],
-                            config['noise_type'], config['noise_size'], use_abs=config.get('use_abs', True))
+    model = get_model_from_config(config, args.width, args.height, args.in_channels, args.classes)
     model.load_state_dict(torch.load(checkpoint, map_location=device))
     model.to(device)
     os.makedirs(os.path.join(args.root, 'pca', args.dataset), exist_ok=True)
-    draw_pca(model, test_loader, device, args.num_samples, os.path.join(args.root, 'pca', args.dataset))
+    draw_pca(model, test_loader, device, args.num_samples,
+             os.path.join(args.root, 'pca', args.dataset))

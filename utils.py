@@ -117,6 +117,16 @@ def plot_image_filters(image, conv1, conv2, n_noise=5, save_path=None):
         plt.savefig(save_path)
     plt.close()
 
+def plot_error(x, mean, std, xlabel, legend, save_path):
+    _, ax = plt.subplots(figsize=(8, 6))
+    ax.plot(x, mean)
+    ax.fill_between(x, mean-std, mean+std, alpha=.3, label=legend)
+    ax.set_xlabel(xlabel)
+    ax.legend()
+    plt.tight_layout()
+    plt.savefig(save_path)
+    plt.close()
+
 def plot_filters(y_true, y_prob, test_image, n_classes, conv1, conv2, root, n_noise=5, n_samples=2):
     cleartoblur = sort_clear2blur(y_prob)
     sort_y_test = y_true[cleartoblur]

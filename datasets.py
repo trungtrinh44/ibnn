@@ -11,7 +11,29 @@ def infinite_wrapper(loader):
             yield x
 
 
-def get_data_loader(dataset, batch_size=64, validation=False, validation_fraction=0.1, random_state=42, root_dir='data/', test_only=False):
+def get_data_loader(dataset, batch_size=64, validation=False, validation_fraction=0.1, random_state=42, root_dir='data/', test_only=False, degree=0):
+    if dataset == 'mnist' and degree != 0:
+        test_data = torchvision.datasets.MNIST(root_dir, train=False, download=True,
+                                               transform=torchvision.transforms.Compose([
+                                                   torchvision.transforms.RandomRotation((degree, degree)),
+                                                   torchvision.transforms.ToTensor(),
+                                                   torchvision.transforms.Normalize(
+                                                       (0.1307,), (0.3081,))
+                                               ]))
+        test_loader = DataLoader(
+            test_data, batch_size=batch_size, pin_memory=True, shuffle=False)
+        return test_loader
+    if dataset == 'fmnist' and degree != 0:
+        test_data = torchvision.datasets.FashionMNIST(root_dir, train=False, download=True,
+                                                      transform=torchvision.transforms.Compose([
+                                                          torchvision.transforms.RandomRotation((degree, degree)),
+                                                          torchvision.transforms.ToTensor(),
+                                                          torchvision.transforms.Normalize(
+                                                              (0.2860,), (0.3205,))
+                                                      ]))
+        test_loader = DataLoader(
+            test_data, batch_size=batch_size, pin_memory=True, shuffle=False)
+        return test_loader
     if dataset == 'mnist':
         train_data = torchvision.datasets.MNIST(root_dir, train=True, download=True,
                                                 transform=torchvision.transforms.Compose([

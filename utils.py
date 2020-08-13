@@ -3,6 +3,8 @@ import os
 
 import matplotlib.pyplot as plt
 import numpy as np
+import torch
+import torch.nn as nn
 from scipy.stats import entropy
 from sklearn.metrics import auc, roc_auc_score, roc_curve
 
@@ -113,6 +115,7 @@ def plot_image_filters(image, conv1, conv2, n_noise=5, save_path=None):
     plt.tight_layout()
     if save_path is not None:
         plt.savefig(save_path)
+    plt.close()
 
 def plot_filters(y_true, y_prob, test_image, n_classes, conv1, conv2, root, n_noise=5, n_samples=2):
     cleartoblur = sort_clear2blur(y_prob)
@@ -161,3 +164,130 @@ def plot_prior_var(data, title, save_path):
     plt.tight_layout()
     if save_path is not None:
         plt.savefig(save_path)
+
+def plot_mean_std(conv1, conv2, fc1, fc2, save_path):
+    fig = plt.figure(figsize=(128+1.5, 20))
+    gs = fig.add_gridspec(20, 128+2, width_ratios=[1] + [2]*128 + [0.5])
+    ax = fig.add_subplot(gs[:8, 0])
+    ax.set_xticks([])
+    ax.set_yticks([])
+    ax.axis('off')
+    ax.text(0.5, 0.5, 'Conv 1', fontsize='large', rotation='vertical', horizontalalignment='center', verticalalignment='center')
+    vmin, vmax = conv1[0].min(), conv1[0].max()
+    for i in range(32):
+        ax = fig.add_subplot(gs[:4, 4*i+1:4*i+5])
+        im = ax.imshow(conv1[0][i], vmin=vmin, vmax=vmax)
+        if i == 0:
+            ax.set_ylabel('Mean')
+        ax.set_xticks([])
+        ax.set_yticks([])
+        ax.set_title(f'Filter {i}')
+    ax = fig.add_subplot(gs[:4, -1])
+    fig.colorbar(im, cax=ax)
+    vmin, vmax = conv1[1].min(), conv1[1].max()
+    for i in range(32):
+        ax = fig.add_subplot(gs[4:8, 4*i+1:4*i+5])
+        im = ax.imshow(conv1[1][i], vmin=vmin, vmax=vmax)
+        if i == 0:
+            ax.set_ylabel('Variance')
+        ax.set_xticks([])
+        ax.set_yticks([])
+    ax = fig.add_subplot(gs[4:8, -1])
+    fig.colorbar(im, cax=ax)
+
+    ax = fig.add_subplot(gs[10:14, 0])
+    ax.set_xticks([])
+    ax.set_yticks([])
+    ax.axis('off')
+    ax.text(0.5, 0.5, 'Conv 2', fontsize='large', rotation='vertical', horizontalalignment='center', verticalalignment='center')
+
+    vmin, vmax = conv2[0].min(), conv2[0].max()
+    for i in range(64):
+        ax = fig.add_subplot(gs[10:12, 2*i+1:2*i+3])
+        im = ax.imshow(conv2[0][i], vmin=vmin, vmax=vmax)
+        if i == 0:
+            ax.set_ylabel('Mean')
+        ax.set_xticks([])
+        ax.set_yticks([])
+        ax.set_title(f'Filter {i}')
+    ax = fig.add_subplot(gs[10:12, -1])
+    fig.colorbar(im, cax=ax)
+
+    vmin, vmax = conv2[1].min(), conv2[1].max()
+    for i in range(64):
+        ax = fig.add_subplot(gs[12:14, 2*i+1:2*i+3])
+        im = ax.imshow(conv2[1][i], vmin=vmin, vmax=vmax)
+        if i == 0:
+            ax.set_ylabel('Variance')
+        ax.set_xticks([])
+        ax.set_yticks([])
+    ax = fig.add_subplot(gs[12:14, -1])
+    fig.colorbar(im, cax=ax)
+
+    ax = fig.add_subplot(gs[16:20, 0])
+    ax.set_xticks([])
+    ax.set_yticks([])
+    ax.axis('off')
+    ax.text(0.5, 0.5, 'FC 1', fontsize='large', rotation='vertical', horizontalalignment='center', verticalalignment='center')
+
+    ax = fig.add_subplot(gs[16:20, 1:9])
+    ax.set_xticks([])
+    ax.set_yticks([])
+    ax.set_title('Mean')
+    vmin, vmax = fc1[0].min(), fc1[0].max()
+    im = ax.imshow(fc1[0].reshape((16, 32)), vmin=vmin, vmax=vmax)
+    fig.colorbar(im, cax=fig.add_subplot(gs[16:20, 9]))
+
+    ax = fig.add_subplot(gs[16:20, 12:20])
+    ax.set_xticks([])
+    ax.set_yticks([])
+    ax.set_title('Variance')
+    vmin, vmax = fc1[1].min(), fc1[1].max()
+    im = ax.imshow(fc1[1].reshape((16, 32)), vmin=vmin, vmax=vmax)
+    fig.colorbar(im, cax=fig.add_subplot(gs[16:20, 20]))
+
+    ax = fig.add_subplot(gs[16:20, 22])
+    ax.set_xticks([])
+    ax.set_yticks([])
+    ax.axis('off')
+    ax.text(0.5, 0.5, 'FC 2', fontsize='large', rotation='vertical', horizontalalignment='center', verticalalignment='center')
+
+    ax = fig.add_subplot(gs[16:20, 23:33])
+    ax.set_xticks([])
+    ax.set_yticks([])
+    ax.set_title('Mean')
+    vmin, vmax = fc2[0].min(), fc2[0].max()
+    im = ax.imshow(fc2[0].reshape((1, 10)), vmin=vmin, vmax=vmax)
+    fig.colorbar(im, cax=fig.add_subplot(gs[16:20, 34]))
+
+    ax = fig.add_subplot(gs[16:20, 38:48])
+    ax.set_xticks([])
+    ax.set_yticks([])
+    ax.set_title('Variance')
+    vmin, vmax = fc2[1].min(), fc2[1].max()
+    im = ax.imshow(fc2[1].reshape((1, 10)), vmin=vmin, vmax=vmax)
+    fig.colorbar(im, cax=fig.add_subplot(gs[16:24, 49]))
+
+    plt.tight_layout()
+    plt.savefig(save_path)
+    plt.close()
+
+class RunningMeanStd(nn.Module):
+    def __init__(self, dim, shape):
+        super(RunningMeanStd, self).__init__()
+        self.sum = nn.Parameter(torch.zeros(shape), requires_grad=False)
+        self.square_sum = nn.Parameter(torch.zeros(shape), requires_grad=False)
+        self.count = nn.Parameter(torch.zeros(()), requires_grad=False)
+        self.dim = dim
+    
+    def update(self, samples):
+        self.count += samples.size(self.dim)
+        self.sum += samples.sum(self.dim)
+        self.square_sum += (samples**2).sum(self.dim)
+    
+    def mean(self):
+        return self.sum/self.count
+
+    def var(self):
+        return self.square_sum/(self.count-1) - (self.sum/self.count)*(self.sum/(self.count-1))
+

@@ -80,20 +80,20 @@ class DropoutLeNet(nn.Module):
 
     def __one_pass(self, x, return_conv=False):
         bs = x.size(0)
-        x = conv1 = self.conv1(x)
+        x = self.conv1(x)
         x = F.dropout(x, p=self.dropout, training=True)
-        x = self.act1(x)
+        x = conv1 = self.act1(x)
         x = F.max_pool2d(x, 2)
 
-        x = conv2 = self.conv2(x)
+        x = self.conv2(x)
         x = F.dropout(x, p=self.dropout, training=True)
-        x = self.act2(x)
+        x = conv2 = self.act2(x)
         x = F.max_pool2d(x, 2)
 
         x = x.reshape((bs, -1))
-        x = fc1 = self.fc1(x)
+        x = self.fc1(x)
         x = F.dropout(x, p=self.dropout, training=True)
-        x = self.act3(x)
+        x = fc1 = self.act3(x)
         x = self.fc2(x)
         x = fc2 = F.log_softmax(x, dim=-1)
         if return_conv:

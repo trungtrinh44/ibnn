@@ -84,6 +84,16 @@ def get_data_loader(dataset, batch_size=64, validation=False, validation_fractio
         test_loader = DataLoader(
             test_data, batch_size=batch_size, pin_memory=True, shuffle=False)
         return test_loader
+    if dataset == 'kmnist_mnist_test':
+        test_data = torchvision.datasets.KMNIST(root_dir, train=False, download=True,
+                                                transform=torchvision.transforms.Compose([
+                                                    torchvision.transforms.ToTensor(),
+                                                    torchvision.transforms.Normalize(
+                                                        (0.1307,), (0.3081,))
+                                                ]))
+        test_loader = DataLoader(
+            test_data, batch_size=batch_size, pin_memory=True, shuffle=False)
+        return test_loader
     if dataset == 'mnist_fmnist_test':
         test_data = torchvision.datasets.MNIST(root_dir, train=False, download=True,
                                                transform=torchvision.transforms.Compose([
@@ -91,6 +101,16 @@ def get_data_loader(dataset, batch_size=64, validation=False, validation_fractio
                                                    torchvision.transforms.Normalize(
                                                        (0.2860,), (0.3205,))
                                                ]))
+        test_loader = DataLoader(
+            test_data, batch_size=batch_size, pin_memory=True, shuffle=False)
+        return test_loader
+    if dataset == 'kmnist_fmnist_test':
+        test_data = torchvision.datasets.KMNIST(root_dir, train=False, download=True,
+                                                transform=torchvision.transforms.Compose([
+                                                    torchvision.transforms.ToTensor(),
+                                                    torchvision.transforms.Normalize(
+                                                        (0.2860,), (0.3205,))
+                                                ]))
         test_loader = DataLoader(
             test_data, batch_size=batch_size, pin_memory=True, shuffle=False)
         return test_loader
@@ -169,7 +189,7 @@ def get_data_loader(dataset, batch_size=64, validation=False, validation_fractio
             train_loader = DataLoader(
                 train_data, batch_size=batch_size, pin_memory=True, shuffle=True)
             return train_loader, test_loader
-    if dataset == 'semeion':
+    if dataset == 'semeion_mnist_test':
         test_data = torchvision.datasets.SEMEION(root_dir, download=True,
                                                  transform=torchvision.transforms.Compose([
                                                      torchvision.transforms.Pad(
@@ -177,6 +197,18 @@ def get_data_loader(dataset, batch_size=64, validation=False, validation_fractio
                                                      torchvision.transforms.ToTensor(),
                                                      torchvision.transforms.Normalize(
                                                          (0.1307,), (0.3081,))
+                                                 ]))
+        test_loader = DataLoader(test_data, batch_size=batch_size,
+                                 pin_memory=True, shuffle=False)
+        return test_loader
+    if dataset == 'semeion_fmnist_test':
+        test_data = torchvision.datasets.SEMEION(root_dir, download=True,
+                                                 transform=torchvision.transforms.Compose([
+                                                     torchvision.transforms.Pad(
+                                                         6),
+                                                     torchvision.transforms.ToTensor(),
+                                                     torchvision.transforms.Normalize(
+                                                         (0.2860,), (0.3205,))
                                                  ]))
         test_loader = DataLoader(test_data, batch_size=batch_size,
                                  pin_memory=True, shuffle=False)

@@ -94,9 +94,9 @@ class DropoutLeNet(nn.Module):
         x = fc1 = self.fc1(x)
         x = F.dropout(x, p=self.dropout, training=True)
         x = self.act3(x)
-        x = self.fc2(x)
+        x = fc2 = self.fc2(x)
         if return_conv:
-            return F.log_softmax(x, dim=-1), conv1, conv2, fc1
+            return F.log_softmax(x, dim=-1), conv1, conv2, fc1, fc2
         return F.log_softmax(x, dim=-1)
 
     def forward(self, x, L=1, return_conv=False):
@@ -104,14 +104,15 @@ class DropoutLeNet(nn.Module):
             return self.__one_pass(x, return_conv)
         else:
             if return_conv:
-                c1s, c2s, f1s, f2s = [], [], [], []
+                outs, c1s, c2s, f1s, f2s = [], [], [], [], []
                 for _ in range(L):
-                    f2, c1, c2, f1 = self.__one_pass(x, return_conv)
+                    o, c1, c2, f1, f2 = self.__one_pass(x, return_conv)
+                    outs.append(o.unsqueeze_(1))
                     c1s.append(c1.unsqueeze_(1))
                     c2s.append(c2.unsqueeze_(1))
                     f1s.append(f1.unsqueeze_(1))
                     f2s.append(f2.unsqueeze_(1))
-                return torch.cat(f2s, dim=1), torch.cat(c1s, dim=1), torch.cat(c2s, dim=1), torch.cat(f1s, dim=1)
+                return torch.cat(outs, dim=1), torch.cat(c1s, dim=1), torch.cat(c2s, dim=1), torch.cat(f1s, dim=1), torch.cat(f2s, dim=1)
             result = [
                 self.__one_pass(x).unsqueeze(1) for _ in range(L)
             ]
@@ -183,8 +184,8 @@ class StochasticLeNet(nn.Module):
             def wrapper(layer): return MixtureGaussianWrapper(layer, prior_mean=prior_mean, prior_std=prior_std, posterior_p=posterior_p,
                                                               posterior_std=posterior_std, train_posterior_std=train_posterior_std)
         super(StochasticLeNet, self).__init__()
-        self.conv1 = Conv2d(
-            in_channel, n_channels[0], kernel_size=5, init_method=init_method, activation=activation)
+        self.conv1 = Conv2d(in_channel, n_channels[0], kernel_size=5,
+                            init_method=init_method, activation=activation)
         self.act1 = get_activation(activation)
         width = get_dimension_size_conv(width, 0, 1, 5)
         height = get_dimension_size_conv(height, 0, 1, 5)
@@ -218,9 +219,9 @@ class StochasticLeNet(nn.Module):
         x = x.reshape((bs, -1))
         x = self.fc1(x)
         x = fc1 = self.act3(x)
-        x = self.fc2(x)
+        x = fc2 = self.fc2(x)
         if return_conv:
-            return F.log_softmax(x, dim=-1), conv1, conv2, fc1
+            return F.log_softmax(x, dim=-1), conv1, conv2, fc1, fc2
         return F.log_softmax(x, dim=-1)
 
     def forward(self, x, L=1, return_conv=False):
@@ -228,14 +229,15 @@ class StochasticLeNet(nn.Module):
             return self.__one_pass(x, return_conv)
         else:
             if return_conv:
-                c1s, c2s, f1s, f2s = [], [], [], []
+                outs, c1s, c2s, f1s, f2s = [], [], [], [], []
                 for _ in range(L):
-                    f2, c1, c2, f1 = self.__one_pass(x, return_conv)
+                    o, c1, c2, f1, f2 = self.__one_pass(x, return_conv)
+                    outs.append(o.unsqueeze_(1))
                     c1s.append(c1.unsqueeze_(1))
                     c2s.append(c2.unsqueeze_(1))
                     f1s.append(f1.unsqueeze_(1))
                     f2s.append(f2.unsqueeze_(1))
-                return torch.cat(f2s, dim=1), torch.cat(c1s, dim=1), torch.cat(c2s, dim=1), torch.cat(f1s, dim=1)
+                return torch.cat(outs, dim=1), torch.cat(c1s, dim=1), torch.cat(c2s, dim=1), torch.cat(f1s, dim=1), torch.cat(f2s, dim=1)
             result = [
                 self.__one_pass(x).unsqueeze(1) for _ in range(L)
             ]

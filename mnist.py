@@ -57,6 +57,7 @@ def my_config():
     fc1_weight = 0.0
     use_abs = False
     kl_div_nbatch = True
+    no_kl = False
     dropout = 0.5  # for mc-dropout model
     if not torch.cuda.is_available():
         device = 'cpu'
@@ -141,7 +142,7 @@ def test_nll(model, loader, device, num_test_sample, model_type):
 
 
 @ex.automain
-def main(_run, model_type, num_train_sample, num_test_sample, device, validate_freq, num_iterations, logging_freq, kl_weight, fc1_weight, kl_div_nbatch):
+def main(_run, model_type, num_train_sample, num_test_sample, device, validate_freq, num_iterations, logging_freq, kl_weight, fc1_weight, kl_div_nbatch, no_kl):
     logger = get_logger()
     train_loader, valid_loader, test_loader = get_dataloader()
     logger.info(
@@ -164,7 +165,7 @@ def main(_run, model_type, num_train_sample, num_test_sample, device, validate_f
             bx = bx.to(device)
             by = by.to(device)
             optimizer.zero_grad()
-            loglike, kl = model.vb_loss(bx, by, num_train_sample)
+            loglike, kl = model.vb_loss(bx, by, num_train_sample, no_kl)
             loss = loglike + kl_weight*kl/n_batch
             loss.backward()
             optimizer.step()

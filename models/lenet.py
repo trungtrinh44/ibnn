@@ -82,15 +82,15 @@ class DropoutLeNet(nn.Module):
         bs = x.size(0)
         x = self.conv1(x)
         x = conv1 = self.act1(x)
-        x = F.dropout(x, p=self.dropout, training=True)
         x = F.max_pool2d(x, 2)
 
+        x = F.dropout(x, p=self.dropout, training=True)
         x = self.conv2(x)
         x = conv2 = self.act2(x)
-        x = F.dropout(x, p=self.dropout, training=True)
         x = F.max_pool2d(x, 2)
 
         x = x.reshape((bs, -1))
+        x = F.dropout(x, p=self.dropout, training=True)
         x = self.fc1(x)
         x = fc1 = self.act3(x)
         x = F.dropout(x, p=self.dropout, training=True)
@@ -255,9 +255,11 @@ class StochasticLeNet(nn.Module):
             return -logp.mean(), y_pred
         return -logp.mean()
 
-    def vb_loss(self, x, y, L):
+    def vb_loss(self, x, y, L, no_kl=False):
         y_pred = self.forward(x)
         logp = D.Categorical(logits=y_pred).log_prob(y)
+        if no_kl:
+            return -logp.mean(), torch.zeros(())
         kl = self.conv2.kl(L) + self.fc1.kl(L) + self.fc2.kl(L)
         return -logp.mean(), kl
 

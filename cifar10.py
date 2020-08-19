@@ -30,6 +30,7 @@ def my_config():
     init_prior_std = 1.0
     posterior_p = 0.5
     posterior_std = 1.0
+    posterior_mean = [0.0, 1.0]
     det_params = {
         'lr': 1e-4, 'weight_decay': 0.0
     }
@@ -56,6 +57,7 @@ def my_config():
     num_test_sample = 100
     logging_freq = 500
     train_posterior_std = False
+    train_posterior_mean = False
     posterior_type = 'mixture_gaussian'
     device = 'cuda'
     fc1_weight = 0.0
@@ -70,10 +72,10 @@ def my_config():
 @ex.capture
 def get_model(model_type, conv_hiddens, fc_hidden, init_method, activation, init_prior_mean, init_prior_std,
               device, adam_params, posterior_p, posterior_std, lr_scheduler, train_posterior_std, posterior_type,
-              det_params, sto_params, dropout):
+              det_params, sto_params, dropout, posterior_mean, train_posterior_mean):
     if model_type == 'stochastic':
         model = StochasticLeNet(32, 32, 3, conv_hiddens, fc_hidden, 10, init_method, activation,
-                                posterior_p, posterior_std, init_prior_mean, init_prior_std, train_posterior_std, posterior_type)
+                                posterior_p, posterior_std, init_prior_mean, init_prior_std, train_posterior_std, posterior_mean, train_posterior_mean, posterior_type)
         optimizer = torch.optim.AdamW(
             [{
                 'params': model.parameters(),

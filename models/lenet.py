@@ -176,14 +176,15 @@ class DeterministicLeNet(nn.Module):
 
 class StochasticLeNet(nn.Module):
     def __init__(self, width, height, in_channel, n_channels, n_hidden, n_output=10, init_method='normal', activation='relu',
-                 posterior_p=0.5, posterior_std=1.0, prior_mean=0.0, prior_std=1.0, train_posterior_std=False,
+                 posterior_p=0.5, posterior_std=1.0, prior_mean=0.0, prior_std=1.0, train_posterior_std=False, posterior_mean=[0.0, 1.0], train_posterior_mean=False,
                  posterior_type='mixture_gaussian', **kargs):
         if posterior_type == 'gaussian':
             def wrapper(layer): return GaussianWrapper(
                 layer, prior_mean, prior_std, posterior_std, train_posterior_std)
         else:
             def wrapper(layer): return MixtureGaussianWrapper(layer, prior_mean=prior_mean, prior_std=prior_std, posterior_p=posterior_p,
-                                                              posterior_std=posterior_std, train_posterior_std=train_posterior_std)
+                                                              posterior_std=posterior_std, train_posterior_std=train_posterior_std,
+                                                              posterior_mean=posterior_mean, train_posterior_mean=train_posterior_mean)
         super(StochasticLeNet, self).__init__()
         self.conv1 = Conv2d(in_channel, n_channels[0], kernel_size=5,
                             init_method=init_method, activation=activation)
@@ -273,5 +274,6 @@ def get_model_from_config(config, width, height, in_channels, n_classes):
     else:
         model = StochasticLeNet(width, height, in_channels, config['conv_hiddens'], config['fc_hidden'], n_classes, config['init_method'], config['activation'],
                                 config['posterior_p'], config['posterior_std'], config['init_prior_mean'], config['init_prior_std'],
-                                train_posterior_std=config.get('train_posterior_std', False), posterior_type=config.get('posterior_type', 'mixture_gaussian'))
+                                train_posterior_std=config.get('train_posterior_std', False), posterior_type=config.get('posterior_type', 'mixture_gaussian'),
+                                train_posterior_mean=config.get('train_posterior_mean', False), posterior_mean=config.get('posterior_mean', [0.0, 1.0]))
     return model

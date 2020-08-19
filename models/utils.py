@@ -78,12 +78,13 @@ class Conv2d(nn.Conv2d):
 
 
 class MixtureGaussianWrapper(nn.Module):
-    def __init__(self, layer, prior_mean=0.0, prior_std=1.0, posterior_p=0.5, posterior_std=1.0, train_posterior_std=False):
+    def __init__(self, layer, prior_mean=0.0, prior_std=1.0, posterior_p=0.5, posterior_std=1.0, train_posterior_std=False, posterior_mean=[0.0, 1.0], train_posterior_mean=False):
         super(MixtureGaussianWrapper, self).__init__()
         self.layer = layer
         self.posterior_params = nn.ParameterDict({
             'p': nn.Parameter(torch.tensor([posterior_p, 1-posterior_p]), requires_grad=False),
-            'std': nn.Parameter(torch.tensor(posterior_std), requires_grad=train_posterior_std)
+            'std': nn.Parameter(torch.tensor(posterior_std), requires_grad=train_posterior_std),
+            'mean': nn.Parameter(torch.tensor(posterior_mean), requires_grad=train_posterior_mean)
         })
         self.prior_params = nn.ParameterDict({
             'mean': nn.Parameter(torch.tensor(prior_mean), requires_grad=False),
@@ -95,12 +96,10 @@ class MixtureGaussianWrapper(nn.Module):
             n_sample = ()
         else:
             n_sample = (L,)
-        means = torch.cat([
-            torch.zeros_like(x).unsqueeze_(-1),
-            x.unsqueeze(-1)
-        ], dim=-1)
+        x_unsqueeze = x.unsqueeze(-1)
+        means = x_unsqueeze * self.posterior_params['mean']
         zero_mask = (x.detach() != 0.0).float()
-        std = self.posterior_params['std']*x.abs().unsqueeze(-1)
+        std = self.posterior_params['std'] * x_unsqueeze.abs()
         std = torch.max(std, torch.tensor(1e-9, device=std.device))
         normal = D.Normal(means, std)
         categorical = D.OneHotCategorical(probs=self.posterior_params['p'])

@@ -127,6 +127,56 @@ class MixtureGaussianWrapper(nn.Module):
         output = self.layer(x_sample)
         return output
 
+class MixtureLaplaceWrapper(nn.Module):
+    def __init__(self, layer, prior_mean=0.0, prior_std=1.0, posterior_p=0.5, posterior_std=1.0, train_posterior_std=False, posterior_mean=[0.0, 1.0], train_posterior_mean=False):
+        super(MixtureLaplaceWrapper, self).__init__()
+        self.layer = layer
+        self.posterior_params = nn.ParameterDict({
+            'p': nn.Parameter(torch.tensor([posterior_p, 1-posterior_p]), requires_grad=False),
+            'std': nn.Parameter(torch.tensor(posterior_std), requires_grad=train_posterior_std),
+            'mean': nn.Parameter(torch.tensor(posterior_mean), requires_grad=train_posterior_mean)
+        })
+        self.prior_params = nn.ParameterDict({
+            'mean': nn.Parameter(torch.tensor(prior_mean), requires_grad=False),
+            'std': nn.Parameter(torch.tensor(prior_std), requires_grad=False)
+        })
+
+    def draw_sample_from_x(self, x, L=1, return_log_prob=False):
+        if L == 1:
+            n_sample = ()
+        else:
+            n_sample = (L,)
+        x_unsqueeze = x.unsqueeze(-1)
+        means = x_unsqueeze * self.posterior_params['mean']
+        zero_mask = (x.detach() != 0.0).float()
+        std = self.posterior_params['std'] * x_unsqueeze.abs()
+        std = torch.max(std, torch.tensor(1e-9, device=std.device))
+        normal = D.Laplace(means, std)
+        categorical = D.OneHotCategorical(probs=self.posterior_params['p'])
+
+        p_sample = categorical.sample(n_sample + x.shape)
+        x_sample = (p_sample*normal.rsample(n_sample)).sum(dim=-1)
+        x_sample = x_sample * zero_mask
+        if return_log_prob:
+            posterior_log_prob = torch.logsumexp(normal.log_prob(x_sample.unsqueeze(-1)) + self.posterior_params['p'].log(), -1)
+            return x_sample, posterior_log_prob*zero_mask
+        return x_sample
+
+    def kl(self, n_sample):
+        # Monte Carlo approximation for the weights KL
+        x_sample, posterior_log_prob = self.draw_sample_from_x(self.layer.weight, L=n_sample, return_log_prob=True)
+        prior_log_prob = self.prior().log_prob(x_sample)
+        logdiff = (posterior_log_prob - prior_log_prob).mean(dim=0)
+        return logdiff.sum()
+
+    def prior(self):
+        return D.Normal(self.prior_params['mean'], self.prior_params['std'])
+
+    def forward(self, x):
+        x_sample = self.draw_sample_from_x(x)
+        output = self.layer(x_sample)
+        return output
+
 class GaussianWrapper(nn.Module):
     def __init__(self, layer, prior_mean=0.0, prior_std=1.0, posterior_std=1.0, train_posterior_std=False):
         super(GaussianWrapper, self).__init__()

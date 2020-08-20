@@ -1,14 +1,45 @@
-sbatch --output=/dev/null --error=/dev/null test.slrm mnist 12 28 1 fmnist_mnist_test implicit_runs
-sbatch --output=/dev/null --error=/dev/null test.slrm mnist 12 28 1 mnist implicit_runs
-sbatch --output=/dev/null --error=/dev/null test.slrm mnist 12 28 1 kmnist_mnist_test implicit_runs
+sbatch --output=/dev/null --error=/dev/null test.slrm mnist 16 28 1 fmnist_mnist_test implicit_runs
+sbatch --output=/dev/null --error=/dev/null test.slrm mnist 16 28 1 mnist implicit_runs
+sbatch --output=/dev/null --error=/dev/null test.slrm mnist 16 28 1 kmnist_mnist_test implicit_runs
 
-sbatch --output=/dev/null --error=/dev/null test.slrm fmnist 58 28 1 mnist_fmnist_test implicit_runs
-sbatch --output=/dev/null --error=/dev/null test.slrm fmnist 58 28 1 fmnist implicit_runs
-sbatch --output=/dev/null --error=/dev/null test.slrm fmnist 58 28 1 kmnist_fmnist_test implicit_runs
+sbatch --output=/dev/null --error=/dev/null test.slrm mnist 17 28 1 fmnist_mnist_test implicit_runs
+sbatch --output=/dev/null --error=/dev/null test.slrm mnist 17 28 1 mnist implicit_runs
+sbatch --output=/dev/null --error=/dev/null test.slrm mnist 17 28 1 kmnist_mnist_test implicit_runs
+
+sbatch --output=/dev/null --error=/dev/null test.slrm mnist 18 28 1 fmnist_mnist_test implicit_runs
+sbatch --output=/dev/null --error=/dev/null test.slrm mnist 18 28 1 mnist implicit_runs
+sbatch --output=/dev/null --error=/dev/null test.slrm mnist 18 28 1 kmnist_mnist_test implicit_runs
+
+sbatch --output=/dev/null --error=/dev/null test.slrm mnist 19 28 1 fmnist_mnist_test implicit_runs
+sbatch --output=/dev/null --error=/dev/null test.slrm mnist 19 28 1 mnist implicit_runs
+sbatch --output=/dev/null --error=/dev/null test.slrm mnist 19 28 1 kmnist_mnist_test implicit_runs
+
+sbatch --output=/dev/null --error=/dev/null test.slrm mnist 20 28 1 fmnist_mnist_test implicit_runs
+sbatch --output=/dev/null --error=/dev/null test.slrm mnist 20 28 1 mnist implicit_runs
+sbatch --output=/dev/null --error=/dev/null test.slrm mnist 20 28 1 kmnist_mnist_test implicit_runs
+
+sbatch --output=/dev/null --error=/dev/null test.slrm fmnist 60 28 1 mnist_fmnist_test implicit_runs
+sbatch --output=/dev/null --error=/dev/null test.slrm fmnist 60 28 1 fmnist implicit_runs
+sbatch --output=/dev/null --error=/dev/null test.slrm fmnist 60 28 1 kmnist_fmnist_test implicit_runs
 
 sbatch --output=/dev/null --error=/dev/null test.slrm cifar10 14 32 3 cifar10 implicit_runs
 
-sbatch --output=/dev/null --error=/dev/null add_noise_test.slrm mnist  12 28 1 implicit_runs
-sbatch --output=/dev/null --error=/dev/null fgsm_test.slrm      mnist  12 28 1 implicit_runs
-sbatch --output=/dev/null --error=/dev/null random_test.slrm    mnist  12 28 1 implicit_runs
-sbatch --output=/dev/null --error=/dev/null rotate_test.slrm    mnist  12 28 1 implicit_runs
+sbatch --output=/dev/null --error=/dev/null add_noise_test.slrm fmnist 68 28 1 implicit_runs
+sbatch --output=/dev/null --error=/dev/null fgsm_test.slrm      fmnist 68 28 1 implicit_runs
+sbatch --output=/dev/null --error=/dev/null random_test.slrm    fmnist 68 28 1 implicit_runs
+sbatch --output=/dev/null --error=/dev/null rotate_test.slrm    fmnist 68 28 1 implicit_runs
+
+sbatch --output=/dev/null --error=/dev/null add_noise_test.slrm mnist  17 28 1 implicit_runs
+sbatch --output=/dev/null --error=/dev/null fgsm_test.slrm      mnist  17 28 1 implicit_runs
+sbatch --output=/dev/null --error=/dev/null random_test.slrm    mnist  17 28 1 implicit_runs
+sbatch --output=/dev/null --error=/dev/null rotate_test.slrm    mnist  17 28 1 implicit_runs
+
+sbatch --output=/dev/null --error=/dev/null add_noise_test.slrm mnist  18 28 1 implicit_runs
+sbatch --output=/dev/null --error=/dev/null fgsm_test.slrm      mnist  18 28 1 implicit_runs
+sbatch --output=/dev/null --error=/dev/null random_test.slrm    mnist  18 28 1 implicit_runs
+sbatch --output=/dev/null --error=/dev/null rotate_test.slrm    mnist  18 28 1 implicit_runs
+
+sbatch --output=/dev/null --error=/dev/null add_noise_test.slrm mnist  19 28 1 implicit_runs
+sbatch --output=/dev/null --error=/dev/null fgsm_test.slrm      mnist  19 28 1 implicit_runs
+sbatch --output=/dev/null --error=/dev/null random_test.slrm    mnist  19 28 1 implicit_runs
+sbatch --output=/dev/null --error=/dev/null rotate_test.slrm    mnist  19 28 1 implicit_runs

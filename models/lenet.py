@@ -181,8 +181,12 @@ class StochasticLeNet(nn.Module):
         if posterior_type == 'gaussian':
             def wrapper(layer): return GaussianWrapper(
                 layer, prior_mean, prior_std, posterior_std, train_posterior_std)
-        else:
+        elif posterior_type == 'mixture_gaussian':
             def wrapper(layer): return MixtureGaussianWrapper(layer, prior_mean=prior_mean, prior_std=prior_std, posterior_p=posterior_p,
+                                                              posterior_std=posterior_std, train_posterior_std=train_posterior_std,
+                                                              posterior_mean=posterior_mean, train_posterior_mean=train_posterior_mean)
+        elif posterior_type == 'mixture_laplace':
+            def wrapper(layer): return MixtureLaplaceWrapper(layer, prior_mean=prior_mean, prior_std=prior_std, posterior_p=posterior_p,
                                                               posterior_std=posterior_std, train_posterior_std=train_posterior_std,
                                                               posterior_mean=posterior_mean, train_posterior_mean=train_posterior_mean)
         super(StochasticLeNet, self).__init__()

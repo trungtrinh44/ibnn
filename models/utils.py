@@ -99,7 +99,7 @@ class MixtureGaussianWrapper(nn.Module):
         x_unsqueeze = x.unsqueeze(-1)
         means = x_unsqueeze * self.posterior_params['mean']
         zero_mask = (x.detach() != 0.0).float()
-        std = self.posterior_params['std'] * x_unsqueeze.abs()
+        std = (self.posterior_params['std'] * x_unsqueeze).abs()
         std = torch.max(std, torch.tensor(1e-9, device=std.device))
         normal = D.Normal(means, std)
         categorical = D.OneHotCategorical(probs=self.posterior_params['p'])
@@ -149,7 +149,7 @@ class MixtureLaplaceWrapper(nn.Module):
         x_unsqueeze = x.unsqueeze(-1)
         means = x_unsqueeze * self.posterior_params['mean']
         zero_mask = (x.detach() != 0.0).float()
-        std = self.posterior_params['std'] * x_unsqueeze.abs()
+        std = (self.posterior_params['std'] * x_unsqueeze).abs()
         std = torch.max(std, torch.tensor(1e-9, device=std.device))
         normal = D.Laplace(means, std)
         categorical = D.OneHotCategorical(probs=self.posterior_params['p'])
@@ -170,7 +170,7 @@ class MixtureLaplaceWrapper(nn.Module):
         return logdiff.sum()
 
     def prior(self):
-        return D.Normal(self.prior_params['mean'], self.prior_params['std'])
+        return D.Laplace(self.prior_params['mean'], self.prior_params['std'])
 
     def forward(self, x):
         x_sample = self.draw_sample_from_x(x)

@@ -101,23 +101,19 @@ class DropoutLeNet(nn.Module):
         return x
 
     def forward(self, x, L=1, return_conv=False):
-        if L <= 1:
-            return self.__one_pass(x, return_conv)
+        x = torch.repeat_interleave(x, repeats=L, dim=0)
+        if return_conv:
+            x, c1, c2, f1, f2 = self.__one_pass(x, True)
+            x = x.reshape((-1, L) + x.shape[1:])
+            c1 = c1.reshape((-1, L) + x.shape[1:])
+            c2 = c2.reshape((-1, L) + x.shape[1:])
+            f1 = f1.reshape((-1, L) + x.shape[1:])
+            f2 = f2.reshape((-1, L) + x.shape[1:])
+            return x, c1, c2, f1, f2
         else:
-            if return_conv:
-                outs, c1s, c2s, f1s, f2s = [], [], [], [], []
-                for _ in range(L):
-                    o, c1, c2, f1, f2 = self.__one_pass(x, return_conv)
-                    outs.append(o.unsqueeze(1))
-                    c1s.append(c1.unsqueeze(1))
-                    c2s.append(c2.unsqueeze(1))
-                    f1s.append(f1.unsqueeze(1))
-                    f2s.append(f2.unsqueeze(1))
-                return torch.cat(outs, dim=1), torch.cat(c1s, dim=1), torch.cat(c2s, dim=1), torch.cat(f1s, dim=1), torch.cat(f2s, dim=1)
-            result = [
-                self.__one_pass(x).unsqueeze(1) for _ in range(L)
-            ]
-            return torch.cat(result, dim=1)
+            x = self.__one_pass(x, False)
+            x = x.reshape((-1, L) + x.shape[1:])
+            return x
 
     def negative_loglikelihood(self, x, y, L, return_prob=False):
         y_pred = self.forward(x, L)
@@ -232,23 +228,19 @@ class StochasticLeNet(nn.Module):
         return x
 
     def forward(self, x, L=1, return_conv=False):
-        if L <= 1:
-            return self.__one_pass(x, return_conv)
+        x = torch.repeat_interleave(x, repeats=L, dim=0)
+        if return_conv:
+            x, c1, c2, f1, f2 = self.__one_pass(x, True)
+            x = x.reshape((-1, L) + x.shape[1:])
+            c1 = c1.reshape((-1, L) + x.shape[1:])
+            c2 = c2.reshape((-1, L) + x.shape[1:])
+            f1 = f1.reshape((-1, L) + x.shape[1:])
+            f2 = f2.reshape((-1, L) + x.shape[1:])
+            return x, c1, c2, f1, f2
         else:
-            if return_conv:
-                outs, c1s, c2s, f1s, f2s = [], [], [], [], []
-                for _ in range(L):
-                    o, c1, c2, f1, f2 = self.__one_pass(x, return_conv)
-                    outs.append(o.unsqueeze(1))
-                    c1s.append(c1.unsqueeze(1))
-                    c2s.append(c2.unsqueeze(1))
-                    f1s.append(f1.unsqueeze(1))
-                    f2s.append(f2.unsqueeze(1))
-                return torch.cat(outs, dim=1), torch.cat(c1s, dim=1), torch.cat(c2s, dim=1), torch.cat(f1s, dim=1), torch.cat(f2s, dim=1)
-            result = [
-                self.__one_pass(x).unsqueeze(1) for _ in range(L)
-            ]
-            return torch.cat(result, dim=1)
+            x = self.__one_pass(x, False)
+            x = x.reshape((-1, L) + x.shape[1:])
+            return x
 
     def negative_loglikelihood(self, x, y, L, return_prob=False):
         y_pred = self.forward(x, L)
@@ -261,8 +253,9 @@ class StochasticLeNet(nn.Module):
         return -logp.mean()
 
     def vb_loss(self, x, y, L, no_kl=False):
-        y_pred = self.forward(x)
-        logp = D.Categorical(logits=y_pred).log_prob(y)
+        y_pred = self.forward(x, L)
+        y_target = y.unsqueeze(1).repeat(1, L)
+        logp = D.Categorical(logits=y_pred).log_prob(y_target)
         if no_kl:
             return -logp.mean(), torch.zeros(())
         kl = self.conv2.kl(L) + self.fc1.kl(L) + self.fc2.kl(L)

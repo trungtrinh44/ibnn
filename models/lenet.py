@@ -105,10 +105,10 @@ class DropoutLeNet(nn.Module):
         if return_conv:
             x, c1, c2, f1, f2 = self.__one_pass(x, True)
             x = x.reshape((-1, L) + x.shape[1:])
-            c1 = c1.reshape((-1, L) + x.shape[1:])
-            c2 = c2.reshape((-1, L) + x.shape[1:])
-            f1 = f1.reshape((-1, L) + x.shape[1:])
-            f2 = f2.reshape((-1, L) + x.shape[1:])
+            c1 = c1.reshape((-1, L) + c1.shape[1:])
+            c2 = c2.reshape((-1, L) + c2.shape[1:])
+            f1 = f1.reshape((-1, L) + f1.shape[1:])
+            f2 = f2.reshape((-1, L) + f2.shape[1:])
             return x, c1, c2, f1, f2
         else:
             x = self.__one_pass(x, False)
@@ -232,10 +232,10 @@ class StochasticLeNet(nn.Module):
         if return_conv:
             x, c1, c2, f1, f2 = self.__one_pass(x, True)
             x = x.reshape((-1, L) + x.shape[1:])
-            c1 = c1.reshape((-1, L) + x.shape[1:])
-            c2 = c2.reshape((-1, L) + x.shape[1:])
-            f1 = f1.reshape((-1, L) + x.shape[1:])
-            f2 = f2.reshape((-1, L) + x.shape[1:])
+            c1 = c1.reshape((-1, L) + c1.shape[1:])
+            c2 = c2.reshape((-1, L) + c2.shape[1:])
+            f1 = f1.reshape((-1, L) + f1.shape[1:])
+            f2 = f2.reshape((-1, L) + f2.shape[1:])
             return x, c1, c2, f1, f2
         else:
             x = self.__one_pass(x, False)

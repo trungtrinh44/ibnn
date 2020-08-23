@@ -113,8 +113,7 @@ class MixtureGaussianWrapper(nn.Module):
     def forward(self, x):
         normal = D.Normal(self.posterior_params['mean'], self.posterior_params['std'])
         categorical = D.OneHotCategorical(probs=self.posterior_params['p'])
-        sample_shape = [x.size(0), x.size(1)] + [1] * (x.ndim-2)
-        sample = (categorical.sample(sample_shape) * normal.rsample(sample_shape)).sum(dim=-1)
+        sample = (categorical.sample(x.shape) * normal.rsample(x.shape)).sum(dim=-1)
         output = self.layer(x * sample)
         return output
 
@@ -154,8 +153,7 @@ class MixtureLaplaceWrapper(nn.Module):
     def forward(self, x):
         laplace = D.Laplace(self.posterior_params['mean'], self.posterior_params['std'])
         categorical = D.OneHotCategorical(probs=self.posterior_params['p'])
-        sample_shape = [x.size(0), x.size(1)] + [1] * (x.ndim-2)
-        sample = (categorical.sample(sample_shape) * laplace.rsample(sample_shape)).sum(dim=-1)
+        sample = (categorical.sample(x.shape) * laplace.rsample(x.shape)).sum(dim=-1)
         output = self.layer(x * sample)
         return output
 

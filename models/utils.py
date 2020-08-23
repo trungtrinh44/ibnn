@@ -95,17 +95,15 @@ class MixtureGaussianWrapper(nn.Module):
         # Monte Carlo approximation for the weights KL
         normal = D.Normal(self.posterior_params['mean'], self.posterior_params['std'])
         categorical = D.OneHotCategorical(probs=self.posterior_params['p'])
-        sample_shape = [n_sample, 1, self.layer.weight.size(1)] + [1] * (self.layer.weight.ndim-2)
+        sample_shape = (n_sample, ) + self.layer.weight.shape
         sample = (categorical.sample(sample_shape) * normal.rsample(sample_shape)).sum(dim=-1)
         weight_sample = self.layer.weight.unsqueeze(0) * sample
         weight_unsqueeze = self.layer.weight.unsqueeze(-1)
         weight_mean = weight_unsqueeze * self.posterior_params['mean']
-        weight_std = torch.max((weight_unsqueeze * self.posterior_params['std']).abs(), torch.tensor(1e-9, device=self.layer.weight.device))
+        weight_std = torch.max((weight_unsqueeze * self.posterior_params['std']).abs(), torch.tensor(1e-6, device=self.layer.weight.device))
         components = D.Normal(weight_mean, weight_std)
-        mixtures = D.Categorical(probs=self.posterior_params['p'])
-        posterior = D.MixtureSameFamily(mixtures, components)
         prior = D.Normal(self.prior_params['mean'], self.prior_params['std'])
-        posterior_log_prob = posterior.log_prob(weight_sample)
+        posterior_log_prob = torch.logsumexp(components.log_prob(weight_sample.unsqueeze(-1)) + self.posterior_params['p'].log(), -1)
         prior_log_prob = prior.log_prob(weight_sample)
         logdiff = (posterior_log_prob - prior_log_prob).mean(dim=0)
         return logdiff.sum()

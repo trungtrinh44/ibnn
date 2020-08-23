@@ -124,6 +124,12 @@ class DropoutLeNet(nn.Module):
         if return_prob:
             return -logp.mean(), y_pred
         return -logp.mean()
+    
+    def train_loss(self, x, y, L):
+        y_pred = self.forward(x, L)
+        y_target = y.unsqueeze(1).repeat(1, L)
+        logp = D.Categorical(logits=y_pred).log_prob(y_target)
+        return -logp.mean()
 
 
 class DeterministicLeNet(nn.Module):

@@ -100,7 +100,7 @@ class MixtureGaussianWrapper(nn.Module):
         weight_sample = self.layer.weight.unsqueeze(0) * sample
         weight_unsqueeze = self.layer.weight.unsqueeze(-1)
         weight_mean = weight_unsqueeze * self.posterior_params['mean']
-        weight_std = torch.max((weight_unsqueeze * self.posterior_params['std']).abs(), torch.tensor(1e-6, device=self.layer.weight.device))
+        weight_std = torch.max((weight_unsqueeze * self.posterior_params['std']).abs(), torch.tensor(1e-9, device=self.layer.weight.device))
         components = D.Normal(weight_mean, weight_std)
         prior = D.Normal(self.prior_params['mean'], self.prior_params['std'])
         posterior_log_prob = torch.logsumexp(components.log_prob(weight_sample.unsqueeze(-1)) + self.posterior_params['p'].log(), -1)
@@ -112,6 +112,8 @@ class MixtureGaussianWrapper(nn.Module):
         normal = D.Normal(self.posterior_params['mean'], self.posterior_params['std'])
         categorical = D.OneHotCategorical(probs=self.posterior_params['p'])
         sample = (categorical.sample(x.shape) * normal.rsample(x.shape)).sum(dim=-1)
+        mask = (x != 0.0).float()
+        sample = sample * mask
         output = self.layer(x * sample)
         return output
 
@@ -133,7 +135,7 @@ class MixtureLaplaceWrapper(nn.Module):
         # Monte Carlo approximation for the weights KL
         laplace = D.Laplace(self.posterior_params['mean'], self.posterior_params['std'])
         categorical = D.OneHotCategorical(probs=self.posterior_params['p'])
-        sample_shape = [n_sample, 1, self.layer.weight.size(1)] + [1] * (self.layer.weight.ndim-2)
+        sample_shape = (n_sample, ) + self.layer.weight.shape
         sample = (categorical.sample(sample_shape) * laplace.rsample(sample_shape)).sum(dim=-1)
         weight_sample = self.layer.weight.unsqueeze(0) * sample
         weight_unsqueeze = self.layer.weight.unsqueeze(-1)
@@ -152,6 +154,8 @@ class MixtureLaplaceWrapper(nn.Module):
         laplace = D.Laplace(self.posterior_params['mean'], self.posterior_params['std'])
         categorical = D.OneHotCategorical(probs=self.posterior_params['p'])
         sample = (categorical.sample(x.shape) * laplace.rsample(x.shape)).sum(dim=-1)
+        mask = (x != 0.0).float()
+        sample = sample * mask
         output = self.layer(x * sample)
         return output
 

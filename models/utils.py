@@ -93,10 +93,8 @@ class MixtureGaussianWrapper(nn.Module):
 
     def kl(self, n_sample):
         # Monte Carlo approximation for the weights KL
-        normal = D.Normal(self.posterior_params['mean'], self.posterior_params['std'])
-        categorical = D.OneHotCategorical(probs=self.posterior_params['p'])
         sample_shape = (n_sample, ) + self.layer.weight.shape
-        sample = (categorical.sample(sample_shape) * normal.rsample(sample_shape)).sum(dim=-1)
+        sample = self.sample_noise(sample_shape)
         weight_sample = self.layer.weight.unsqueeze(0) * sample
         weight_unsqueeze = self.layer.weight.unsqueeze(-1)
         weight_mean = weight_unsqueeze * self.posterior_params['mean']
@@ -108,10 +106,14 @@ class MixtureGaussianWrapper(nn.Module):
         logdiff = (posterior_log_prob - prior_log_prob).mean(dim=0)
         return logdiff.sum()
 
-    def forward(self, x):
+    def sample_noise(self, noise_shape):
         normal = D.Normal(self.posterior_params['mean'], self.posterior_params['std'])
         categorical = D.OneHotCategorical(probs=self.posterior_params['p'])
-        sample = (categorical.sample(x.shape) * normal.rsample(x.shape)).sum(dim=-1)
+        sample = (categorical.sample(noise_shape) * normal.rsample(noise_shape)).sum(dim=-1)
+        return sample
+
+    def forward(self, x):
+        sample = self.sample_noise(x.shape)
         mask = (x != 0.0).float()
         sample = sample * mask
         output = self.layer(x * sample)
@@ -133,27 +135,27 @@ class MixtureLaplaceWrapper(nn.Module):
 
     def kl(self, n_sample):
         # Monte Carlo approximation for the weights KL
-        laplace = D.Laplace(self.posterior_params['mean'], self.posterior_params['std'])
-        categorical = D.OneHotCategorical(probs=self.posterior_params['p'])
         sample_shape = (n_sample, ) + self.layer.weight.shape
-        sample = (categorical.sample(sample_shape) * laplace.rsample(sample_shape)).sum(dim=-1)
+        sample = self.sample_noise(sample_shape)
         weight_sample = self.layer.weight.unsqueeze(0) * sample
         weight_unsqueeze = self.layer.weight.unsqueeze(-1)
         weight_mean = weight_unsqueeze * self.posterior_params['mean']
         weight_std = torch.max((weight_unsqueeze * self.posterior_params['std']).abs(), torch.tensor(1e-9, device=self.layer.weight.device))
         components = D.Laplace(weight_mean, weight_std)
-        mixtures = D.Categorical(probs=self.posterior_params['p'])
-        posterior = D.MixtureSameFamily(mixtures, components)
         prior = D.Laplace(self.prior_params['mean'], self.prior_params['std'])
-        posterior_log_prob = posterior.log_prob(weight_sample)
+        posterior_log_prob = torch.logsumexp(components.log_prob(weight_sample.unsqueeze(-1)) + self.posterior_params['p'].log(), -1)
         prior_log_prob = prior.log_prob(weight_sample)
         logdiff = (posterior_log_prob - prior_log_prob).mean(dim=0)
         return logdiff.sum()
 
-    def forward(self, x):
+    def sample_noise(self, noise_shape):
         laplace = D.Laplace(self.posterior_params['mean'], self.posterior_params['std'])
         categorical = D.OneHotCategorical(probs=self.posterior_params['p'])
-        sample = (categorical.sample(x.shape) * laplace.rsample(x.shape)).sum(dim=-1)
+        sample = (categorical.sample(noise_shape) * laplace.rsample(noise_shape)).sum(dim=-1)
+        return sample
+
+    def forward(self, x):
+        sample = self.sample_noise(x.shape)
         mask = (x != 0.0).float()
         sample = sample * mask
         output = self.layer(x * sample)

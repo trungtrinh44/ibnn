@@ -172,29 +172,16 @@ class GaussianWrapper(nn.Module):
             'mean': nn.Parameter(torch.tensor(prior_mean), requires_grad=False),
             'std': nn.Parameter(torch.tensor(prior_std), requires_grad=False)
         })
-
-    def draw_sample_from_x(self, x, L=1, return_log_prob=False):
-        if L == 1:
-            n_sample = ()
-        else:
-            n_sample = (L,)
-        means = x
-        zero_mask = (means.detach() != 0.0).float()
-        std = self.posterior_params['std']*means.abs()
-        std = torch.max(std, torch.tensor(1e-9, device=std.device))
-        normal = D.Normal(means, std)
-
-        x_sample = normal.rsample(n_sample)
-        x_sample = x_sample * zero_mask
-        if return_log_prob:
-            posterior_log_prob = normal.log_prob(x_sample)
-            return x_sample, posterior_log_prob*zero_mask
-        return x_sample 
+    
+    def sample_noise(self, noise_shape):
+        normal = D.Normal(1.0, self.posterior_params['std'])
+        sample = normal.rsample(noise_shape)
+        return sample
 
     def kl(self, n_sample):
         # Monte Carlo approximation for the weights KL
         means = self.layer.weight
-        std = self.posterior_params['std']*means.abs()
+        std = (self.posterior_params['std']*means).abs()
         std = torch.max(std, torch.tensor(1e-9, device=std.device))
         normal = D.Normal(means, std)
         kl = D.kl_divergence(normal, self.prior())
@@ -204,8 +191,10 @@ class GaussianWrapper(nn.Module):
         return D.Normal(self.prior_params['mean'], self.prior_params['std'])
 
     def forward(self, x):
-        x_sample = self.draw_sample_from_x(x)
-        output = self.layer(x_sample)
+        sample = self.sample_noise(x.shape)
+        mask = (x != 0.0).float()
+        sample = sample * mask
+        output = self.layer(x * sample)
         return output
 
 class ECELoss(nn.Module):

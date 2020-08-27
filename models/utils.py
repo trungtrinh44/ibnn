@@ -162,10 +162,11 @@ class MixtureLaplaceWrapper(nn.Module):
         return output
 
 class GaussianWrapper(nn.Module):
-    def __init__(self, layer, prior_mean=0.0, prior_std=1.0, posterior_std=1.0, train_posterior_std=False):
+    def __init__(self, layer, prior_mean=0.0, prior_std=1.0, posterior_mean=0.0, posterior_std=1.0, train_posterior_std=False, train_posterior_mean=False):
         super(GaussianWrapper, self).__init__()
         self.layer = layer
         self.posterior_params = nn.ParameterDict({
+            'mean': nn.Parameter(torch.tensor(posterior_mean), requires_grad=train_posterior_mean),
             'std': nn.Parameter(torch.tensor(posterior_std), requires_grad=train_posterior_std)
         })
         self.prior_params = nn.ParameterDict({
@@ -174,14 +175,14 @@ class GaussianWrapper(nn.Module):
         })
     
     def sample_noise(self, noise_shape):
-        normal = D.Normal(1.0, self.posterior_params['std'])
+        normal = D.Normal(self.posterior_params['mean'], self.posterior_params['std'])
         sample = normal.rsample(noise_shape)
         return sample
 
     def kl(self, n_sample):
         # Monte Carlo approximation for the weights KL
-        means = self.layer.weight
-        std = (self.posterior_params['std']*means).abs()
+        means = self.posterior_params['mean']*self.layer.weight
+        std = (self.posterior_params['std']*self.layer.weight).abs()
         std = torch.max(std, torch.tensor(1e-9, device=std.device))
         normal = D.Normal(means, std)
         kl = D.kl_divergence(normal, self.prior())
@@ -189,6 +190,43 @@ class GaussianWrapper(nn.Module):
 
     def prior(self):
         return D.Normal(self.prior_params['mean'], self.prior_params['std'])
+
+    def forward(self, x):
+        sample = self.sample_noise(x.shape)
+        mask = (x != 0.0).float()
+        sample = sample * mask
+        output = self.layer(x * sample)
+        return output
+
+class LaplaceWrapper(nn.Module):
+    def __init__(self, layer, prior_mean=0.0, prior_std=1.0, posterior_mean=0.0, posterior_std=1.0, train_posterior_std=False, train_posterior_mean=False):
+        super(LaplaceWrapper, self).__init__()
+        self.layer = layer
+        self.posterior_params = nn.ParameterDict({
+            'mean': nn.Parameter(torch.tensor(posterior_mean), requires_grad=train_posterior_mean),
+            'std': nn.Parameter(torch.tensor(posterior_std), requires_grad=train_posterior_std)
+        })
+        self.prior_params = nn.ParameterDict({
+            'mean': nn.Parameter(torch.tensor(prior_mean), requires_grad=False),
+            'std': nn.Parameter(torch.tensor(prior_std), requires_grad=False)
+        })
+    
+    def sample_noise(self, noise_shape):
+        laplace = D.Laplace(self.posterior_params['mean'], self.posterior_params['std'])
+        sample = laplace.rsample(noise_shape)
+        return sample
+
+    def kl(self, n_sample):
+        # Monte Carlo approximation for the weights KL
+        means = self.posterior_params['mean']*self.layer.weight
+        std = (self.posterior_params['std']*self.layer.weight).abs()
+        std = torch.max(std, torch.tensor(1e-9, device=std.device))
+        laplace = D.Laplace(means, std)
+        kl = D.kl_divergence(laplace, self.prior())
+        return kl.sum()
+
+    def prior(self):
+        return D.Laplace(self.prior_params['mean'], self.prior_params['std'])
 
     def forward(self, x):
         sample = self.sample_noise(x.shape)

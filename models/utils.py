@@ -59,6 +59,10 @@ class Linear(nn.Linear):
             nn.init.normal_(self.weight, mean=0.0, std=0.1)
             if bias:
                 nn.init.constant_(self.bias, 0.1)
+        elif init_method == 'wrn':
+            nn.init.kaiming_normal_(self.weight)
+            if bias:
+                nn.init.constant_(self.bias, 0.0)
 
 
 class Conv2d(nn.Conv2d):
@@ -75,14 +79,19 @@ class Conv2d(nn.Conv2d):
             nn.init.normal_(self.weight, mean=0.0, std=0.01)
             if bias:
                 nn.init.constant_(self.bias, 0.01)
-
+        elif init_method == 'wrn':
+            nn.init.kaiming_normal_(self.weight)
+            if bias:
+                nn.init.constant_(self.bias, 0.0)
 
 class MixtureGaussianWrapper(nn.Module):
     def __init__(self, layer, prior_mean=0.0, prior_std=1.0, posterior_p=0.5, posterior_std=1.0, train_posterior_std=False, posterior_mean=[0.0, 1.0], train_posterior_mean=False):
         super(MixtureGaussianWrapper, self).__init__()
         self.layer = layer
+        if isinstance(posterior_p, float):
+            posterior_p = [posterior_p, 1-posterior_p]
         self.posterior_params = nn.ParameterDict({
-            'p': nn.Parameter(torch.tensor([posterior_p, 1-posterior_p]), requires_grad=False),
+            'p': nn.Parameter(torch.tensor(posterior_p), requires_grad=False),
             'std': nn.Parameter(torch.tensor(posterior_std), requires_grad=train_posterior_std),
             'mean': nn.Parameter(torch.tensor(posterior_mean), requires_grad=train_posterior_mean)
         })
@@ -123,8 +132,10 @@ class MixtureLaplaceWrapper(nn.Module):
     def __init__(self, layer, prior_mean=0.0, prior_std=1.0, posterior_p=0.5, posterior_std=1.0, train_posterior_std=False, posterior_mean=[0.0, 1.0], train_posterior_mean=False):
         super(MixtureLaplaceWrapper, self).__init__()
         self.layer = layer
+        if isinstance(posterior_p, float):
+            posterior_p = [posterior_p, 1-posterior_p]
         self.posterior_params = nn.ParameterDict({
-            'p': nn.Parameter(torch.tensor([posterior_p, 1-posterior_p]), requires_grad=False),
+            'p': nn.Parameter(torch.tensor(posterior_p), requires_grad=False),
             'std': nn.Parameter(torch.tensor(posterior_std), requires_grad=train_posterior_std),
             'mean': nn.Parameter(torch.tensor(posterior_mean), requires_grad=train_posterior_mean)
         })

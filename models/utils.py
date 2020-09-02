@@ -84,167 +84,86 @@ class Conv2d(nn.Conv2d):
             if bias:
                 nn.init.constant_(self.bias, 0.0)
 
-class MixtureGaussianWrapper(nn.Module):
-    def __init__(self, layer, prior_mean=0.0, prior_std=1.0, posterior_p=0.5, posterior_std=1.0, train_posterior_std=False, posterior_mean=[0.0, 1.0], train_posterior_mean=False):
-        super(MixtureGaussianWrapper, self).__init__()
-        self.layer = layer
-        if isinstance(posterior_p, float):
-            posterior_p = [posterior_p, 1-posterior_p]
-        self.posterior_params = nn.ParameterDict({
-            'p': nn.Parameter(torch.tensor(posterior_p), requires_grad=False),
-            'std': nn.Parameter(torch.tensor(posterior_std), requires_grad=train_posterior_std),
-            'mean': nn.Parameter(torch.tensor(posterior_mean), requires_grad=train_posterior_mean)
-        })
-        self.prior_params = nn.ParameterDict({
-            'mean': nn.Parameter(torch.tensor(prior_mean), requires_grad=False),
-            'std': nn.Parameter(torch.tensor(prior_std), requires_grad=False)
-        })
 
-    def kl(self, n_sample):
-        # Monte Carlo approximation for the weights KL
-        sample_shape = (n_sample, ) + self.layer.weight.shape
-        sample = self.sample_noise(sample_shape)
-        weight_sample = self.layer.weight.unsqueeze(0) * sample
-        weight_unsqueeze = self.layer.weight.unsqueeze(-1)
-        weight_mean = weight_unsqueeze * self.posterior_params['mean']
-        weight_std = torch.max((weight_unsqueeze * self.posterior_params['std']).abs(), torch.tensor(1e-9, device=self.layer.weight.device))
-        components = D.Normal(weight_mean, weight_std)
-        prior = D.Normal(self.prior_params['mean'], self.prior_params['std'])
-        posterior_log_prob = torch.logsumexp(components.log_prob(weight_sample.unsqueeze(-1)) + self.posterior_params['p'].log(), -1)
-        prior_log_prob = prior.log_prob(weight_sample)
-        logdiff = (posterior_log_prob - prior_log_prob).mean(dim=0)
-        return logdiff.sum()
-
-    def sample_noise(self, noise_shape):
-        normal = D.Normal(self.posterior_params['mean'], self.posterior_params['std'])
-        categorical = D.OneHotCategorical(probs=self.posterior_params['p'])
-        sample = (categorical.sample(noise_shape) * normal.rsample(noise_shape)).sum(dim=-1)
-        return sample
-
-    def forward(self, x):
-        sample = self.sample_noise(x.shape)
-        mask = (x != 0.0).float()
-        sample = sample * mask
-        output = self.layer(x * sample)
-        return output
-
-class MixtureLaplaceWrapper(nn.Module):
-    def __init__(self, layer, prior_mean=0.0, prior_std=1.0, posterior_p=0.5, posterior_std=1.0, train_posterior_std=False, posterior_mean=[0.0, 1.0], train_posterior_mean=False):
-        super(MixtureLaplaceWrapper, self).__init__()
-        self.layer = layer
-        if isinstance(posterior_p, float):
-            posterior_p = [posterior_p, 1-posterior_p]
-        self.posterior_params = nn.ParameterDict({
-            'p': nn.Parameter(torch.tensor(posterior_p), requires_grad=False),
-            'std': nn.Parameter(torch.tensor(posterior_std), requires_grad=train_posterior_std),
-            'mean': nn.Parameter(torch.tensor(posterior_mean), requires_grad=train_posterior_mean)
-        })
-        self.prior_params = nn.ParameterDict({
-            'mean': nn.Parameter(torch.tensor(prior_mean), requires_grad=False),
-            'std': nn.Parameter(torch.tensor(prior_std), requires_grad=False)
-        })
-
-    def kl(self, n_sample):
-        # Monte Carlo approximation for the weights KL
-        sample_shape = (n_sample, ) + self.layer.weight.shape
-        sample = self.sample_noise(sample_shape)
-        weight_sample = self.layer.weight.unsqueeze(0) * sample
-        weight_unsqueeze = self.layer.weight.unsqueeze(-1)
-        weight_mean = weight_unsqueeze * self.posterior_params['mean']
-        weight_std = torch.max((weight_unsqueeze * self.posterior_params['std']).abs(), torch.tensor(1e-9, device=self.layer.weight.device))
-        components = D.Laplace(weight_mean, weight_std)
-        prior = D.Laplace(self.prior_params['mean'], self.prior_params['std'])
-        posterior_log_prob = torch.logsumexp(components.log_prob(weight_sample.unsqueeze(-1)) + self.posterior_params['p'].log(), -1)
-        prior_log_prob = prior.log_prob(weight_sample)
-        logdiff = (posterior_log_prob - prior_log_prob).mean(dim=0)
-        return logdiff.sum()
-
-    def sample_noise(self, noise_shape):
-        laplace = D.Laplace(self.posterior_params['mean'], self.posterior_params['std'])
-        categorical = D.OneHotCategorical(probs=self.posterior_params['p'])
-        sample = (categorical.sample(noise_shape) * laplace.rsample(noise_shape)).sum(dim=-1)
-        return sample
-
-    def forward(self, x):
-        sample = self.sample_noise(x.shape)
-        mask = (x != 0.0).float()
-        sample = sample * mask
-        output = self.layer(x * sample)
-        return output
-
-class GaussianWrapper(nn.Module):
-    def __init__(self, layer, prior_mean=0.0, prior_std=1.0, posterior_mean=0.0, posterior_std=1.0, train_posterior_std=False, train_posterior_mean=False):
-        super(GaussianWrapper, self).__init__()
-        self.layer = layer
-        self.posterior_params = nn.ParameterDict({
-            'mean': nn.Parameter(torch.tensor(posterior_mean), requires_grad=train_posterior_mean),
-            'std': nn.Parameter(torch.tensor(posterior_std), requires_grad=train_posterior_std)
-        })
-        self.prior_params = nn.ParameterDict({
-            'mean': nn.Parameter(torch.tensor(prior_mean), requires_grad=False),
-            'std': nn.Parameter(torch.tensor(prior_std), requires_grad=False)
-        })
+class StoConv2d(Conv2d):
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1,
+                 padding=0, dilation=1, groups=1, bias=True, padding_mode='zeros', init_method='normal', activation='relu',
+                 n_components=2, prior_mean=0.0, prior_std=1.0):
+        super(StoConv2d, self).__init__(in_channels, out_channels, kernel_size, stride,
+                                        padding, dilation, groups, bias, padding_mode, init_method, activation)
+        posterior_mean = torch.ones((1, self.weight.size(1), 1, 1, n_components))
+        posterior_std = torch.ones((1, self.weight.size(1), 1, 1, n_components))
+        posterior_p = torch.ones((1, self.weight.size(1), 1, 1, n_components))/n_components
+        # [1, In, 1, 1]
+        self.posterior_mean = nn.Parameter(posterior_mean, requires_grad=True)
+        self.posterior_std = nn.Parameter(posterior_std, requires_grad=True)
+        self.posterior_p = nn.Parameter(posterior_p, requires_grad=False)
+        nn.init.normal_(self.posterior_std, 0.0, 0.1)
+        nn.init.normal_(self.posterior_mean, 1.0, 0.5)
+        self.posterior_std.data.abs_().expm1_().log_()
+        self.prior_mean = nn.Parameter(torch.tensor(prior_mean), requires_grad=False)
+        self.prior_std = nn.Parameter(torch.tensor(prior_std), requires_grad=False)
     
-    def sample_noise(self, noise_shape):
-        normal = D.Normal(self.posterior_params['mean'], self.posterior_params['std'])
-        sample = normal.rsample(noise_shape)
-        return sample
-
-    def kl(self, n_sample):
-        # Monte Carlo approximation for the weights KL
-        means = self.posterior_params['mean']*self.layer.weight
-        std = (self.posterior_params['std']*self.layer.weight).abs()
-        std = torch.max(std, torch.tensor(1e-9, device=std.device))
-        normal = D.Normal(means, std)
-        kl = D.kl_divergence(normal, self.prior())
-        return kl.sum()
-
-    def prior(self):
-        return D.Normal(self.prior_params['mean'], self.prior_params['std'])
+    def get_sample(self, n_sample=()):
+        components = D.Normal(self.posterior_mean, F.softplus(self.posterior_std))
+        mixtures = D.Categorical(probs=self.posterior_p)
+        cs = components.rsample(n_sample)
+        ms = mixtures.sample(n_sample).unsqueeze_(-1)
+        return torch.gather(cs, -1, ms).squeeze(-1)
 
     def forward(self, x):
-        sample = self.sample_noise(x.shape)
-        mask = (x != 0.0).float()
-        sample = sample * mask
-        output = self.layer(x * sample)
-        return output
-
-class LaplaceWrapper(nn.Module):
-    def __init__(self, layer, prior_mean=0.0, prior_std=1.0, posterior_mean=0.0, posterior_std=1.0, train_posterior_std=False, train_posterior_mean=False):
-        super(LaplaceWrapper, self).__init__()
-        self.layer = layer
-        self.posterior_params = nn.ParameterDict({
-            'mean': nn.Parameter(torch.tensor(posterior_mean), requires_grad=train_posterior_mean),
-            'std': nn.Parameter(torch.tensor(posterior_std), requires_grad=train_posterior_std)
-        })
-        self.prior_params = nn.ParameterDict({
-            'mean': nn.Parameter(torch.tensor(prior_mean), requires_grad=False),
-            'std': nn.Parameter(torch.tensor(prior_std), requires_grad=False)
-        })
+        weight = self.weight * self.get_sample()
+        return self._conv_forward(x, weight)
     
-    def sample_noise(self, noise_shape):
-        laplace = D.Laplace(self.posterior_params['mean'], self.posterior_params['std'])
-        sample = laplace.rsample(noise_shape)
-        return sample
-
     def kl(self, n_sample):
-        # Monte Carlo approximation for the weights KL
-        means = self.posterior_params['mean']*self.layer.weight
-        std = (self.posterior_params['std']*self.layer.weight).abs()
-        std = torch.max(std, torch.tensor(1e-9, device=std.device))
-        laplace = D.Laplace(means, std)
-        kl = D.kl_divergence(laplace, self.prior())
-        return kl.sum()
+        sample = self.get_sample((n_sample, )) * self.weight
+        ws = self.weight.unsqueeze(-1)
+        mask = (self.weight != 0.0)
+        std = F.softplus(self.posterior_std)*ws.abs()
+        std = torch.where(std == 0.0, torch.ones_like(std, device=std.device), std + 1e-9)
+        components = D.Normal(self.posterior_mean * ws, std)
+        posterior_log_prob = torch.logsumexp(components.log_prob(sample.unsqueeze(-1)) + self.posterior_p.log(), dim=-1)
+        prior_log_prob = D.Normal(self.prior_mean, self.prior_std).log_prob(sample)
+        return ((posterior_log_prob - prior_log_prob)*mask).mean(dim=0).sum()
 
-    def prior(self):
-        return D.Laplace(self.prior_params['mean'], self.prior_params['std'])
+class StoLinear(Linear):
+    def __init__(self, in_features: int, out_features: int, bias: bool = True, init_method='normal', activation='relu',
+                 n_components=2, prior_mean=0.0, prior_std=1.0):
+        super(StoLinear, self).__init__(in_features, out_features, bias, init_method, activation)
+        posterior_mean = torch.ones((1, self.weight.size(1), n_components))
+        posterior_std = torch.ones((1, self.weight.size(1), n_components))
+        posterior_p = torch.ones((1, self.weight.size(1), n_components))/n_components
+        # [1, In]
+        self.posterior_mean = nn.Parameter(posterior_mean, requires_grad=True)
+        self.posterior_std = nn.Parameter(posterior_std, requires_grad=True)
+        self.posterior_p = nn.Parameter(posterior_p, requires_grad=False)
+        nn.init.normal_(self.posterior_std, 0.0, 0.1)
+        nn.init.normal_(self.posterior_mean, 1.0, 0.5)
+        self.posterior_std.data.abs_().expm1_().log_()
+        self.prior_mean = nn.Parameter(torch.tensor(prior_mean), requires_grad=False)
+        self.prior_std = nn.Parameter(torch.tensor(prior_std), requires_grad=False)
+
+    def get_sample(self, n_sample=()):
+        components = D.Normal(self.posterior_mean, F.softplus(self.posterior_std))
+        mixtures = D.Categorical(probs=self.posterior_p)
+        cs = components.rsample(n_sample)
+        ms = mixtures.sample(n_sample).unsqueeze_(-1)
+        return torch.gather(cs, -1, ms).squeeze(-1)
 
     def forward(self, x):
-        sample = self.sample_noise(x.shape)
-        mask = (x != 0.0).float()
-        sample = sample * mask
-        output = self.layer(x * sample)
-        return output
+        weight = self.weight * self.get_sample()
+        return F.linear(x, weight, self.bias)
+    
+    def kl(self, n_sample):
+        sample = self.get_sample((n_sample, )) * self.weight
+        ws = self.weight.unsqueeze(-1)
+        mask = (self.weight != 0.0)
+        std = F.softplus(self.posterior_std)*ws.abs()
+        std = torch.where(std == 0.0, torch.ones_like(std, device=std.device), std + 1e-9)
+        components = D.Normal(self.posterior_mean * ws, std)
+        posterior_log_prob = torch.logsumexp(components.log_prob(sample.unsqueeze(-1)) + self.posterior_p.log(), dim=-1)
+        prior_log_prob = D.Normal(self.prior_mean, self.prior_std).log_prob(sample)
+        return ((posterior_log_prob - prior_log_prob)*mask).mean(dim=0).sum()
 
 class ECELoss(nn.Module):
     """
@@ -260,6 +179,7 @@ class ECELoss(nn.Module):
     "Obtaining Well Calibrated Probabilities Using Bayesian Binning." AAAI.
     2015.
     """
+
     def __init__(self, n_bins=15):
         """
         n_bins (int): number of confidence interval bins
@@ -276,11 +196,13 @@ class ECELoss(nn.Module):
         ece = torch.zeros(1, device=probs.device)
         for bin_lower, bin_upper in zip(self.bin_lowers, self.bin_uppers):
             # Calculated |confidence - accuracy| in each bin
-            in_bin = confidences.gt(bin_lower.item()) * confidences.le(bin_upper.item())
+            in_bin = confidences.gt(bin_lower.item()) * \
+                confidences.le(bin_upper.item())
             prop_in_bin = in_bin.float().mean()
             if prop_in_bin.item() > 0:
                 accuracy_in_bin = accuracies[in_bin].float().mean()
                 avg_confidence_in_bin = confidences[in_bin].mean()
-                ece += torch.abs(avg_confidence_in_bin - accuracy_in_bin) * prop_in_bin
+                ece += torch.abs(avg_confidence_in_bin -
+                                 accuracy_in_bin) * prop_in_bin
 
         return ece

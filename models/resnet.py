@@ -80,29 +80,27 @@ class DetWideResNet(nn.Module):
 
 
 class StoBlock(nn.Module):
-    def __init__(self, in_filters, out_filters, sto_wrapper, stride, init_method):
+    def __init__(self, in_filters, out_filters, stride, init_method, prior_mean, prior_std, n_components):
         super(StoBlock, self).__init__()
         self.bn1 = nn.BatchNorm2d(in_filters, eps=1e-5, momentum=0.1)
         nn.init.uniform_(self.bn1.weight)
         self.relu1 = nn.ReLU(inplace=True)
-        self.conv1 = Conv2d(in_filters, out_filters, 3, stride=stride,
+        self.conv1 = StoConv2d(in_filters, out_filters, 3, stride=stride, prior_mean=prior_mean, prior_std=prior_std, n_components=n_components,
                             padding=1, dilation=1, groups=1, bias=False, padding_mode='zeros', init_method=init_method, activation='relu')
-        self.conv1 = sto_wrapper(self.conv1)
         self.bn2 = nn.BatchNorm2d(out_filters, eps=1e-5, momentum=0.1)
         nn.init.uniform_(self.bn2.weight)
         self.relu2 = nn.ReLU(inplace=True)
-        self.conv2 = Conv2d(out_filters, out_filters, 3, stride=1,
+        self.conv2 = StoConv2d(out_filters, out_filters, 3, stride=1, prior_mean=prior_mean, prior_std=prior_std, n_components=n_components,
                             padding=1, dilation=1, groups=1, bias=False, padding_mode='zeros', init_method=init_method, activation='relu')
-        self.conv2 = sto_wrapper(self.conv2)
         if stride != 1 or in_filters != out_filters:
             self.has_shortcut = True
-            self.shortcut = Conv2d(in_filters, out_filters, 1, stride=stride,
+            self.shortcut = StoConv2d(in_filters, out_filters, 1, stride=stride, prior_mean=prior_mean, prior_std=prior_std, n_components=n_components,
                                    padding=0, dilation=1, groups=1, bias=False, padding_mode='zeros', init_method=init_method, activation='relu')
         else:
             self.has_shortcut = False
 
     def kl(self, n_sample):
-        return self.conv1.kl(n_sample) + self.conv2.kl(n_sample)
+        return self.conv1.kl(n_sample) + self.conv2.kl(n_sample) + (self.shortcut.kl(n_sample) if self.has_shortcut else 0.0)
 
     def forward(self, x):
         o = self.relu1(self.bn1(x))
@@ -116,50 +114,34 @@ class StoBlock(nn.Module):
 
 
 class StoWideResNet(nn.Module):
-    def __init__(self, size, in_channels, posterior_type, prior_mean, prior_std, posterior_p, posterior_mean, posterior_std, train_posterior_std, train_posterior_mean,
-                 n_classes=10, n_per_block=4, k=2, init_method='normal'):
-        if posterior_type == 'gaussian':
-            def wrapper(layer): return GaussianWrapper(layer, prior_mean, prior_std,
-                                                       posterior_mean, posterior_std, train_posterior_std, train_posterior_mean)
-        elif posterior_type == 'laplace':
-            def wrapper(layer): return LaplaceWrapper(layer, prior_mean, prior_std,
-                                                      posterior_mean, posterior_std, train_posterior_std, train_posterior_mean)
-        elif posterior_type == 'mixture_gaussian':
-            def wrapper(layer): return MixtureGaussianWrapper(layer, prior_mean=prior_mean, prior_std=prior_std, posterior_p=posterior_p,
-                                                              posterior_std=posterior_std, train_posterior_std=train_posterior_std,
-                                                              posterior_mean=posterior_mean, train_posterior_mean=train_posterior_mean)
-        elif posterior_type == 'mixture_laplace':
-            def wrapper(layer): return MixtureLaplaceWrapper(layer, prior_mean=prior_mean, prior_std=prior_std, posterior_p=posterior_p,
-                                                             posterior_std=posterior_std, train_posterior_std=train_posterior_std,
-                                                             posterior_mean=posterior_mean, train_posterior_mean=train_posterior_mean)
+    def __init__(self, size, in_channels, n_classes=10, n_per_block=4, k=2, init_method='wrn', prior_mean=0.0, prior_std=1.0, n_components=2):
         super(StoWideResNet, self).__init__()
-        self.conv1 = Conv2d(in_channels, 16, 3, stride=1,
+        self.conv1 = StoConv2d(in_channels, 16, 3, stride=1,
                             padding=1, dilation=1, groups=1, bias=False, padding_mode='zeros', init_method=init_method, activation='relu')
         self.conv2 = nn.Sequential(
-            StoBlock(16, 16*k, wrapper, 1, init_method),
+            StoBlock(16, 16*k, 1, init_method, prior_mean=prior_mean, prior_std=prior_std, n_components=n_components),
             *(
-                StoBlock(16*k, 16*k, wrapper, 1, init_method) for _ in range(n_per_block-1)
+                StoBlock(16*k, 16*k, 1, init_method, prior_mean=prior_mean, prior_std=prior_std, n_components=n_components) for _ in range(n_per_block-1)
             )
         )
         self.conv3 = nn.Sequential(
-            StoBlock(16*k, 32*k, wrapper, 2, init_method),
+            StoBlock(16*k, 32*k, 2, init_method, prior_mean=prior_mean, prior_std=prior_std, n_components=n_components),
             *(
-                StoBlock(32*k, 32*k, wrapper, 1, init_method) for _ in range(n_per_block-1)
+                StoBlock(32*k, 32*k, 1, init_method, prior_mean=prior_mean, prior_std=prior_std, n_components=n_components) for _ in range(n_per_block-1)
             )
         )
         self.conv4 = nn.Sequential(
-            StoBlock(32*k, 64*k, wrapper, 2, init_method),
+            StoBlock(32*k, 64*k, 2, init_method, prior_mean=prior_mean, prior_std=prior_std, n_components=n_components),
             *(
-                StoBlock(64*k, 64*k, wrapper, 1, init_method) for _ in range(n_per_block-1)
+                StoBlock(64*k, 64*k, 1, init_method, prior_mean=prior_mean, prior_std=prior_std, n_components=n_components) for _ in range(n_per_block-1)
             )
         )
         self.bn = nn.BatchNorm2d(64*k, eps=1e-5, momentum=0.1)
         nn.init.uniform_(self.bn.weight)
         self.relu = nn.ReLU(inplace=True)
         self.avg_pool = nn.AvgPool2d(size//4)
-        self.fc1 = Linear(64*k, n_classes, bias=True,
-                          init_method=init_method, activation='linear')
-        self.fc1 = wrapper(self.fc1)
+        self.fc1 = StoLinear(64*k, n_classes, bias=True, 
+                          init_method=init_method, activation='linear', prior_mean=prior_mean, prior_std=prior_std, n_components=n_components)
 
     def forward(self, x, L=1):
         x = torch.repeat_interleave(x, repeats=L, dim=0)

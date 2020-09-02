@@ -22,13 +22,15 @@ ex.observers.append(FileStorageObserver(BASE_DIR))
 def my_config():
     seed = 1
     model_type = 'stochastic'
-    kl_weight = 5.0
+    kl_weight = {
+        'kl_min': 0.0,
+        'kl_max': 1.0,
+        'last_iter': 62560
+    }
     batch_size = 128
     init_prior_mean = 0.0
     init_prior_std = 1.0
-    posterior_p = 0.5
-    posterior_std = 1.0
-    posterior_mean = [0.0, 1.0]
+    n_components = 2
     det_params = {
         'lr': 0.1, 'weight_decay': 5e-4
     }
@@ -56,8 +58,6 @@ def my_config():
     num_kl_sample = 1
     num_test_sample = 1
     logging_freq = 500
-    train_posterior_std = False
-    train_posterior_mean = False
     posterior_type = 'mixture_gaussian'
     device = 'cuda'
     kl_div_nbatch = True
@@ -66,14 +66,20 @@ def my_config():
     if not torch.cuda.is_available():
         device = 'cpu'
 
+@ex.capture(prefix='kl_weight')
+def get_kl_weight(kl_min, kl_max, last_iter):
+    kl = kl_min
+    value = (kl_max-kl_min)/last_iter
+    while 1:
+        yield min(kl_max, kl)
+        kl += value
 
 @ex.capture
-def get_model(model_type, n_per_block, k_factor, init_method, activation, init_prior_mean, init_prior_std,
-              device, sgd_params, posterior_p, posterior_std, lr_scheduler, train_posterior_std, posterior_type,
-              det_params, sto_params, dropout, posterior_mean, train_posterior_mean):
+def get_model(model_type, n_per_block, k_factor, init_method, activation, init_prior_mean, init_prior_std, n_components,
+              device, sgd_params, lr_scheduler, det_params, sto_params, dropout):
     if model_type == 'stochastic':
-        model = StoWideResNet(32, 3, posterior_type, init_prior_mean, init_prior_std, posterior_p, 
-                              posterior_mean, posterior_std, train_posterior_std, train_posterior_mean, 10, n_per_block, k_factor, init_method)
+        model = StoWideResNet(32, 3, 10, n_per_block=n_per_block, k=k_factor, init_method=init_method, 
+                              prior_mean=init_prior_mean, prior_std=init_prior_std, n_components=n_components)
         optimizer = torch.optim.SGD(
             [{
                 'params': model.parameters(),
@@ -143,7 +149,7 @@ def test_nll(model, loader, device, num_test_sample, model_type):
 
 
 @ex.automain
-def main(_run, model_type, num_train_sample, num_test_sample, device, validation, validate_freq, num_iterations, logging_freq, kl_weight, kl_div_nbatch, no_kl, num_kl_sample):
+def main(_run, model_type, num_train_sample, num_test_sample, device, validation, validate_freq, num_iterations, logging_freq, kl_div_nbatch, no_kl, num_kl_sample):
     logger = get_logger()
     if validation:
         train_loader, valid_loader, test_loader = get_dataloader()
@@ -157,7 +163,7 @@ def main(_run, model_type, num_train_sample, num_test_sample, device, validation
     count_parameters(model, logger)
     logger.info(str(model))
     checkpoint_dir = os.path.join(BASE_DIR, _run._id, 'checkpoint.pt')
-
+    kl_weight = get_kl_weight()
     # First train mll
     if model_type == 'stochastic':
         model.train()
@@ -170,15 +176,16 @@ def main(_run, model_type, num_train_sample, num_test_sample, device, validation
             by = by.to(device)
             optimizer.zero_grad()
             loglike, kl = model.vb_loss(bx, by, num_train_sample, num_kl_sample, no_kl)
-            loss = loglike + kl_weight*kl/n_batch
+            klw = next(kl_weight)
+            loss = loglike + klw*kl/n_batch
             loss.backward()
             optimizer.step()
             scheduler.step()
             ex.log_scalar('loglike.train', loglike.item(), i)
             ex.log_scalar('kl.train', kl.item(), i)
             if i % logging_freq == 0:
-                logger.info("VB Epoch %d: loglike: %.4f, kl: %.4f",
-                            i, loglike.item(), kl.item())
+                logger.info("VB Epoch %d: loglike: %.4f, kl: %.4f, kl weight: %.4f",
+                            i, loglike.item(), kl.item(), klw)
             if i % validate_freq == 0:
                 if validation:
                     with torch.no_grad():

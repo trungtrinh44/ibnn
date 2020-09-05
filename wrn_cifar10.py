@@ -35,7 +35,7 @@ def my_config():
         'lr': 0.1, 'weight_decay': 5e-4
     }
     sto_params = {
-        'lr': 1e-4, 'weight_decay': 0.0
+        'lr': 0.1, 'weight_decay': 0.0
     }
     lr_scheduler = {
         'milestones': [23460, 46920, 62560],
@@ -65,6 +65,7 @@ def my_config():
     dropout = 0.3 # for mc-dropout model
     if not torch.cuda.is_available():
         device = 'cpu'
+    start_from_deterministic_checkpoint = ''
 
 @ex.capture(prefix='kl_weight')
 def get_kl_weight(kl_min, kl_max, last_iter):
@@ -80,10 +81,20 @@ def get_model(model_type, n_per_block, k_factor, init_method, activation, init_p
     if model_type == 'stochastic':
         model = StoWideResNet(32, 3, 10, n_per_block=n_per_block, k=k_factor, init_method=init_method, 
                               prior_mean=init_prior_mean, prior_std=init_prior_std, n_components=n_components)
+        detp = []
+        stop = []
+        for name, param in model.named_parameters():
+            if 'posterior_mean' in name or 'posterior_std' in name:
+                stop.append(param)
+            else:
+                detp.append(param)
         optimizer = torch.optim.SGD(
             [{
-                'params': model.parameters(),
+                'params': detp,
                 **det_params
+            },{
+                'params': stop,
+                **sto_params
             }], **sgd_params)
     elif model_type == 'dropout':
         model = DropWideResNet(32, 3, dropout, 10, n_per_block, k_factor, init_method)
@@ -149,7 +160,7 @@ def test_nll(model, loader, device, num_test_sample, model_type):
 
 
 @ex.automain
-def main(_run, model_type, num_train_sample, num_test_sample, device, validation, validate_freq, num_iterations, logging_freq, kl_div_nbatch, no_kl, num_kl_sample):
+def main(_run, model_type, num_train_sample, num_test_sample, device, validation, validate_freq, num_iterations, logging_freq, kl_div_nbatch, no_kl, num_kl_sample, start_from_deterministic_checkpoint):
     logger = get_logger()
     if validation:
         train_loader, valid_loader, test_loader = get_dataloader()
@@ -160,6 +171,11 @@ def main(_run, model_type, num_train_sample, num_test_sample, device, validation
     n_batch = len(train_loader) if kl_div_nbatch else len(train_loader.dataset)
     train_loader = infinite_wrapper(train_loader)
     model, optimizer, scheduler = get_model()
+    if start_from_deterministic_checkpoint != '':
+        model.load_state_dict(
+            torch.load(start_from_deterministic_checkpoint, map_location=device), strict=False
+        )
+        logger.info(f'Load from deterministic checkpoint {start_from_deterministic_checkpoint}')
     count_parameters(model, logger)
     logger.info(str(model))
     checkpoint_dir = os.path.join(BASE_DIR, _run._id, 'checkpoint.pt')

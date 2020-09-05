@@ -102,12 +102,12 @@ class StoBlock(nn.Module):
     def kl(self, n_sample):
         return self.conv1.kl(n_sample) + self.conv2.kl(n_sample) + (self.shortcut.kl(n_sample) if self.has_shortcut else 0.0)
 
-    def forward(self, x):
+    def forward(self, x, indices):
         o = self.relu1(self.bn1(x))
-        out = self.conv1(o)
-        out = self.conv2(self.relu2(self.bn2(out)))
+        out = self.conv1(o, indices)
+        out = self.conv2(self.relu2(self.bn2(out)), indices)
         if self.has_shortcut:
-            out = out + self.shortcut(o)
+            out = out + self.shortcut(o, indices)
         else:
             out = out + x
         return out
@@ -116,42 +116,48 @@ class StoBlock(nn.Module):
 class StoWideResNet(nn.Module):
     def __init__(self, size, in_channels, n_classes=10, n_per_block=4, k=2, init_method='wrn', prior_mean=0.0, prior_std=1.0, n_components=2):
         super(StoWideResNet, self).__init__()
-        self.conv1 = StoConv2d(in_channels, 16, 3, stride=1,
+        self.conv1 = StoConv2d(in_channels, 16, 3, stride=1, prior_mean=prior_mean, prior_std=prior_std, n_components=n_components,
                             padding=1, dilation=1, groups=1, bias=False, padding_mode='zeros', init_method=init_method, activation='relu')
-        self.conv2 = nn.Sequential(
+        self.conv2 = nn.ModuleList([
             StoBlock(16, 16*k, 1, init_method, prior_mean=prior_mean, prior_std=prior_std, n_components=n_components),
             *(
                 StoBlock(16*k, 16*k, 1, init_method, prior_mean=prior_mean, prior_std=prior_std, n_components=n_components) for _ in range(n_per_block-1)
             )
-        )
-        self.conv3 = nn.Sequential(
+        ])
+        self.conv3 = nn.ModuleList([
             StoBlock(16*k, 32*k, 2, init_method, prior_mean=prior_mean, prior_std=prior_std, n_components=n_components),
             *(
                 StoBlock(32*k, 32*k, 1, init_method, prior_mean=prior_mean, prior_std=prior_std, n_components=n_components) for _ in range(n_per_block-1)
             )
-        )
-        self.conv4 = nn.Sequential(
+        ])
+        self.conv4 = nn.ModuleList([
             StoBlock(32*k, 64*k, 2, init_method, prior_mean=prior_mean, prior_std=prior_std, n_components=n_components),
             *(
                 StoBlock(64*k, 64*k, 1, init_method, prior_mean=prior_mean, prior_std=prior_std, n_components=n_components) for _ in range(n_per_block-1)
             )
-        )
+        ])
         self.bn = nn.BatchNorm2d(64*k, eps=1e-5, momentum=0.1)
         nn.init.uniform_(self.bn.weight)
         self.relu = nn.ReLU(inplace=True)
         self.avg_pool = nn.AvgPool2d(size//4)
         self.fc1 = StoLinear(64*k, n_classes, bias=True, 
                           init_method=init_method, activation='linear', prior_mean=prior_mean, prior_std=prior_std, n_components=n_components)
+        self.n_components = n_components
 
-    def forward(self, x, L=1):
+    def forward(self, x, L=1, indices=None):
         x = torch.repeat_interleave(x, repeats=L, dim=0)
-        x = self.conv1(x)
-        x = self.conv2(x)
-        x = self.conv3(x)
-        x = self.conv4(x)
+        if indices is None:
+            indices = torch.multinomial(torch.ones(self.n_components, device=x.device), x.size(0), replacement=True)
+        x = self.conv1(x, indices)
+        for layer in self.conv2:
+            x = layer(x, indices)
+        for layer in self.conv3:
+            x = layer(x, indices)
+        for layer in self.conv4:
+            x = layer(x, indices)
         x = self.relu(self.bn(x))
         x = self.avg_pool(x)
-        x = self.fc1(x.flatten(start_dim=1, end_dim=-1))
+        x = self.fc1(x.flatten(start_dim=1, end_dim=-1), indices)
         x = F.log_softmax(x, dim=-1)
         x = x.reshape((-1, L) + x.shape[1:])
         return x
@@ -160,11 +166,10 @@ class StoWideResNet(nn.Module):
         return sum(l.kl(n_sample) for l in self.conv2)+sum(l.kl(n_sample) for l in self.conv3)+sum(l.kl(n_sample) for l in self.conv4)+self.fc1.kl(n_sample)
 
     def negative_loglikelihood(self, x, y, L, return_prob=False):
-        y_pred = self.forward(x, L)
-        y_target = y.unsqueeze(1).repeat(1, L)
+        y_pred = self.forward(x, L*self.n_components, indices=torch.arange(0, self.n_components, device=x.device).repeat((x.size(0)*L,)))
+        y_target = y.unsqueeze(1).repeat(1, L*self.n_components)
         logp = D.Categorical(logits=y_pred).log_prob(y_target)
-        logp = torch.logsumexp(
-            logp, dim=1) - torch.log(torch.tensor(L, dtype=torch.float32, device=logp.device))
+        logp = torch.logsumexp(logp, dim=1) - torch.log(torch.tensor(L*self.n_components, dtype=torch.float32, device=logp.device))
         if return_prob:
             return -logp.mean(), y_pred
         return -logp.mean()
@@ -279,6 +284,6 @@ def get_wrn_model_from_config(config, width, height, in_channels, n_classes):
     elif config['model_type'] == 'dropout':
         model = DropWideResNet(width, in_channels, config['dropout'], n_classes, config['n_per_block'], config['k_factor'], config['init_method'])
     else:
-        model = StoWideResNet(width, in_channels, config['posterior_type'], config['init_prior_mean'], config['init_prior_std'], config['posterior_p'], 
-                              config['posterior_mean'], config['posterior_std'], config['train_posterior_std'], config['train_posterior_mean'], n_classes, config['n_per_block'], config['k_factor'], config['init_method'])
+        model = StoWideResNet(width, in_channels, n_classes, n_per_block=config['n_per_block'], k=config['k_factor'], init_method=config['init_method'], 
+                              prior_mean=config['init_prior_mean'], prior_std=config['init_prior_std'], n_components=config.get('n_components', 1))
     return model

@@ -88,82 +88,68 @@ class Conv2d(nn.Conv2d):
 class StoConv2d(Conv2d):
     def __init__(self, in_channels, out_channels, kernel_size, stride=1,
                  padding=0, dilation=1, groups=1, bias=True, padding_mode='zeros', init_method='normal', activation='relu',
-                 n_components=2, prior_mean=0.0, prior_std=1.0):
+                 n_components=2, prior_mean=1.0, prior_std=1.0):
         super(StoConv2d, self).__init__(in_channels, out_channels, kernel_size, stride,
                                         padding, dilation, groups, bias, padding_mode, init_method, activation)
-        posterior_mean = torch.ones((1, self.weight.size(1), 1, 1, n_components))
-        posterior_std = torch.ones((1, self.weight.size(1), 1, 1, n_components))
-        posterior_p = torch.ones((1, self.weight.size(1), 1, 1, n_components))/n_components
+        posterior_mean = torch.ones((n_components, self.in_channels, 1, 1))
+        posterior_std = torch.ones((n_components, self.in_channels, 1, 1))
         # [1, In, 1, 1]
         self.posterior_mean = nn.Parameter(posterior_mean, requires_grad=True)
         self.posterior_std = nn.Parameter(posterior_std, requires_grad=True)
-        self.posterior_p = nn.Parameter(posterior_p, requires_grad=False)
-        nn.init.normal_(self.posterior_std, 0.0, 0.1)
+        nn.init.normal_(self.posterior_std, 0.05, 0.02)
         nn.init.normal_(self.posterior_mean, 1.0, 0.5)
         self.posterior_std.data.abs_().expm1_().log_()
         self.prior_mean = nn.Parameter(torch.tensor(prior_mean), requires_grad=False)
         self.prior_std = nn.Parameter(torch.tensor(prior_std), requires_grad=False)
     
-    def get_sample(self, n_sample=()):
-        components = D.Normal(self.posterior_mean, F.softplus(self.posterior_std))
-        mixtures = D.Categorical(probs=self.posterior_p)
-        cs = components.rsample(n_sample)
-        ms = mixtures.sample(n_sample).unsqueeze_(-1)
-        return torch.gather(cs, -1, ms).squeeze(-1)
+    def get_input_sample(self, input, indices):
+        _, _, w, h = input.shape
+        mean = self.posterior_mean.repeat((1, 1, w, h))
+        std = F.softplus(self.posterior_std).repeat((1, 1, w, h))
+        components = D.Normal(mean[indices], std[indices])
+        return components.rsample()
 
-    def forward(self, x):
-        weight = self.weight * self.get_sample()
-        return self._conv_forward(x, weight)
+    def forward(self, x, indices):
+        x = x * self.get_input_sample(x, indices)
+        return self._conv_forward(x, self.weight)
     
     def kl(self, n_sample):
-        sample = self.get_sample((n_sample, )) * self.weight
-        ws = self.weight.unsqueeze(-1)
-        mask = (self.weight != 0.0)
-        std = F.softplus(self.posterior_std)*ws.abs()
-        std = torch.where(std == 0.0, torch.ones_like(std, device=std.device), std + 1e-9)
-        components = D.Normal(self.posterior_mean * ws, std)
-        posterior_log_prob = torch.logsumexp(components.log_prob(sample.unsqueeze(-1)) + self.posterior_p.log(), dim=-1)
-        prior_log_prob = D.Normal(self.prior_mean, self.prior_std).log_prob(sample)
-        return ((posterior_log_prob - prior_log_prob)*mask).mean(dim=0).sum()
+        mean = self.posterior_mean.mean(dim=0)
+        std = F.softplus(self.posterior_std).pow(2.0).mean(dim=0).pow(0.5)
+        components = D.Normal(mean, std)
+        prior = D.Normal(self.prior_mean, self.prior_std)
+        return D.kl_divergence(components, prior).sum()
 
 class StoLinear(Linear):
     def __init__(self, in_features: int, out_features: int, bias: bool = True, init_method='normal', activation='relu',
-                 n_components=2, prior_mean=0.0, prior_std=1.0):
+                 n_components=2, prior_mean=1.0, prior_std=1.0):
         super(StoLinear, self).__init__(in_features, out_features, bias, init_method, activation)
-        posterior_mean = torch.ones((1, self.weight.size(1), n_components))
-        posterior_std = torch.ones((1, self.weight.size(1), n_components))
-        posterior_p = torch.ones((1, self.weight.size(1), n_components))/n_components
+        posterior_mean = torch.ones((n_components, self.in_features))
+        posterior_std = torch.ones((n_components, self.in_features))
         # [1, In]
         self.posterior_mean = nn.Parameter(posterior_mean, requires_grad=True)
         self.posterior_std = nn.Parameter(posterior_std, requires_grad=True)
-        self.posterior_p = nn.Parameter(posterior_p, requires_grad=False)
-        nn.init.normal_(self.posterior_std, 0.0, 0.1)
+        nn.init.normal_(self.posterior_std, 0.05, 0.02)
         nn.init.normal_(self.posterior_mean, 1.0, 0.5)
         self.posterior_std.data.abs_().expm1_().log_()
         self.prior_mean = nn.Parameter(torch.tensor(prior_mean), requires_grad=False)
         self.prior_std = nn.Parameter(torch.tensor(prior_std), requires_grad=False)
 
-    def get_sample(self, n_sample=()):
-        components = D.Normal(self.posterior_mean, F.softplus(self.posterior_std))
-        mixtures = D.Categorical(probs=self.posterior_p)
-        cs = components.rsample(n_sample)
-        ms = mixtures.sample(n_sample).unsqueeze_(-1)
-        return torch.gather(cs, -1, ms).squeeze(-1)
+    def get_input_sample(self, input, indices):
+        components = D.Normal(self.posterior_mean[indices], F.softplus(self.posterior_std)[indices])
+        cs = components.rsample()
+        return cs
 
-    def forward(self, x):
-        weight = self.weight * self.get_sample()
-        return F.linear(x, weight, self.bias)
+    def forward(self, x, indices):
+        x = x * self.get_input_sample(x, indices)
+        return F.linear(x, self.weight, self.bias)
     
     def kl(self, n_sample):
-        sample = self.get_sample((n_sample, )) * self.weight
-        ws = self.weight.unsqueeze(-1)
-        mask = (self.weight != 0.0)
-        std = F.softplus(self.posterior_std)*ws.abs()
-        std = torch.where(std == 0.0, torch.ones_like(std, device=std.device), std + 1e-9)
-        components = D.Normal(self.posterior_mean * ws, std)
-        posterior_log_prob = torch.logsumexp(components.log_prob(sample.unsqueeze(-1)) + self.posterior_p.log(), dim=-1)
-        prior_log_prob = D.Normal(self.prior_mean, self.prior_std).log_prob(sample)
-        return ((posterior_log_prob - prior_log_prob)*mask).mean(dim=0).sum()
+        mean = self.posterior_mean.mean(dim=0)
+        std = F.softplus(self.posterior_std).pow(2.0).mean(dim=0).pow(0.5)
+        components = D.Normal(mean, std)
+        prior = D.Normal(self.prior_mean, self.prior_std)
+        return D.kl_divergence(components, prior).sum()
 
 class ECELoss(nn.Module):
     """

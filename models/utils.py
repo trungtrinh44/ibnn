@@ -85,14 +85,11 @@ class Conv2d(nn.Conv2d):
                 nn.init.constant_(self.bias, 0.0)
 
 
-class StoConv2d(Conv2d):
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1,
-                 padding=0, dilation=1, groups=1, bias=True, padding_mode='zeros', init_method='normal', activation='relu',
-                 n_components=2, prior_mean=1.0, prior_std=1.0):
-        super(StoConv2d, self).__init__(in_channels, out_channels, kernel_size, stride,
-                                        padding, dilation, groups, bias, padding_mode, init_method, activation)
-        posterior_mean = torch.ones((n_components, self.in_channels, 1, 1))
-        posterior_std = torch.ones((n_components, self.in_channels, 1, 1))
+class StoLayer(nn.Module):
+    def __init__(self, in_features, n_components, prior_mean, prior_std):
+        super(StoLayer, self).__init__()
+        posterior_mean = torch.ones((n_components, *in_features))
+        posterior_std = torch.ones((n_components, *in_features))
         # [1, In, 1, 1]
         self.posterior_mean = nn.Parameter(posterior_mean, requires_grad=True)
         self.posterior_std = nn.Parameter(posterior_std, requires_grad=True)
@@ -103,50 +100,18 @@ class StoConv2d(Conv2d):
         self.prior_std = nn.Parameter(torch.tensor(prior_std), requires_grad=False)
     
     def get_input_sample(self, input, indices):
-        _, _, w, h = input.shape
-        mean = self.posterior_mean.repeat((1, 1, w, h))
-        std = F.softplus(self.posterior_std).repeat((1, 1, w, h))
+        mean = self.posterior_mean.repeat((1, 1, *input.shape[2:]))
+        std = F.softplus(self.posterior_std).repeat((1, 1, *input.shape[2:]))
         components = D.Normal(mean[indices], std[indices])
         return components.rsample()
 
     def forward(self, x, indices):
         x = x * self.get_input_sample(x, indices)
-        return self._conv_forward(x, self.weight)
+        return x
     
     def kl(self, n_sample):
         mean = self.posterior_mean.mean(dim=0)
-        std = F.softplus(self.posterior_std).pow(2.0).mean(dim=0).pow(0.5)
-        components = D.Normal(mean, std)
-        prior = D.Normal(self.prior_mean, self.prior_std)
-        return D.kl_divergence(components, prior).sum()
-
-class StoLinear(Linear):
-    def __init__(self, in_features: int, out_features: int, bias: bool = True, init_method='normal', activation='relu',
-                 n_components=2, prior_mean=1.0, prior_std=1.0):
-        super(StoLinear, self).__init__(in_features, out_features, bias, init_method, activation)
-        posterior_mean = torch.ones((n_components, self.in_features))
-        posterior_std = torch.ones((n_components, self.in_features))
-        # [1, In]
-        self.posterior_mean = nn.Parameter(posterior_mean, requires_grad=True)
-        self.posterior_std = nn.Parameter(posterior_std, requires_grad=True)
-        nn.init.normal_(self.posterior_std, 0.05, 0.02)
-        nn.init.normal_(self.posterior_mean, 1.0, 0.5)
-        self.posterior_std.data.abs_().expm1_().log_()
-        self.prior_mean = nn.Parameter(torch.tensor(prior_mean), requires_grad=False)
-        self.prior_std = nn.Parameter(torch.tensor(prior_std), requires_grad=False)
-
-    def get_input_sample(self, input, indices):
-        components = D.Normal(self.posterior_mean[indices], F.softplus(self.posterior_std)[indices])
-        cs = components.rsample()
-        return cs
-
-    def forward(self, x, indices):
-        x = x * self.get_input_sample(x, indices)
-        return F.linear(x, self.weight, self.bias)
-    
-    def kl(self, n_sample):
-        mean = self.posterior_mean.mean(dim=0)
-        std = F.softplus(self.posterior_std).pow(2.0).mean(dim=0).pow(0.5)
+        std = F.softplus(self.posterior_std).pow(2.0).sum(dim=0).pow(0.5) / self.posterior_std.size(0)
         components = D.Normal(mean, std)
         prior = D.Normal(self.prior_mean, self.prior_std)
         return D.kl_divergence(components, prior).sum()

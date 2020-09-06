@@ -85,29 +85,31 @@ class StoBlock(nn.Module):
         self.bn1 = nn.BatchNorm2d(in_filters, eps=1e-5, momentum=0.1)
         nn.init.uniform_(self.bn1.weight)
         self.relu1 = nn.ReLU(inplace=True)
-        self.conv1 = StoConv2d(in_filters, out_filters, 3, stride=stride, prior_mean=prior_mean, prior_std=prior_std, n_components=n_components,
+        self.sl1 = StoLayer((in_filters, 1, 1), n_components, prior_mean, prior_std)
+        self.conv1 = Conv2d(in_filters, out_filters, 3, stride=stride,
                             padding=1, dilation=1, groups=1, bias=False, padding_mode='zeros', init_method=init_method, activation='relu')
         self.bn2 = nn.BatchNorm2d(out_filters, eps=1e-5, momentum=0.1)
         nn.init.uniform_(self.bn2.weight)
         self.relu2 = nn.ReLU(inplace=True)
-        self.conv2 = StoConv2d(out_filters, out_filters, 3, stride=1, prior_mean=prior_mean, prior_std=prior_std, n_components=n_components,
+        self.sl2 = StoLayer((out_filters, 1, 1), n_components, prior_mean, prior_std)
+        self.conv2 = Conv2d(out_filters, out_filters, 3, stride=1,
                             padding=1, dilation=1, groups=1, bias=False, padding_mode='zeros', init_method=init_method, activation='relu')
         if stride != 1 or in_filters != out_filters:
             self.has_shortcut = True
-            self.shortcut = StoConv2d(in_filters, out_filters, 1, stride=stride, prior_mean=prior_mean, prior_std=prior_std, n_components=n_components,
+            self.shortcut = Conv2d(in_filters, out_filters, 1, stride=stride,
                                    padding=0, dilation=1, groups=1, bias=False, padding_mode='zeros', init_method=init_method, activation='relu')
         else:
             self.has_shortcut = False
 
     def kl(self, n_sample):
-        return self.conv1.kl(n_sample) + self.conv2.kl(n_sample) + (self.shortcut.kl(n_sample) if self.has_shortcut else 0.0)
+        return self.sl1.kl(n_sample) + self.sl2.kl(n_sample)
 
     def forward(self, x, indices):
-        o = self.relu1(self.bn1(x))
-        out = self.conv1(o, indices)
-        out = self.conv2(self.relu2(self.bn2(out)), indices)
+        o = self.sl1(self.relu1(self.bn1(x)), indices)
+        out = self.conv1(o)
+        out = self.conv2(self.sl2(self.relu2(self.bn2(out)), indices))
         if self.has_shortcut:
-            out = out + self.shortcut(o, indices)
+            out = out + self.shortcut(o)
         else:
             out = out + x
         return out
@@ -116,7 +118,7 @@ class StoBlock(nn.Module):
 class StoWideResNet(nn.Module):
     def __init__(self, size, in_channels, n_classes=10, n_per_block=4, k=2, init_method='wrn', prior_mean=0.0, prior_std=1.0, n_components=2):
         super(StoWideResNet, self).__init__()
-        self.conv1 = StoConv2d(in_channels, 16, 3, stride=1, prior_mean=prior_mean, prior_std=prior_std, n_components=n_components,
+        self.conv1 = Conv2d(in_channels, 16, 3, stride=1,
                             padding=1, dilation=1, groups=1, bias=False, padding_mode='zeros', init_method=init_method, activation='relu')
         self.conv2 = nn.ModuleList([
             StoBlock(16, 16*k, 1, init_method, prior_mean=prior_mean, prior_std=prior_std, n_components=n_components),
@@ -140,15 +142,15 @@ class StoWideResNet(nn.Module):
         nn.init.uniform_(self.bn.weight)
         self.relu = nn.ReLU(inplace=True)
         self.avg_pool = nn.AvgPool2d(size//4)
-        self.fc1 = StoLinear(64*k, n_classes, bias=True, 
-                          init_method=init_method, activation='linear', prior_mean=prior_mean, prior_std=prior_std, n_components=n_components)
+        self.sl = StoLayer((64*k, ), n_components, prior_mean, prior_std)
+        self.fc1 = Linear(64*k, n_classes, bias=True, init_method=init_method, activation='linear')
         self.n_components = n_components
 
     def forward(self, x, L=1, indices=None):
         x = torch.repeat_interleave(x, repeats=L, dim=0)
         if indices is None:
             indices = torch.multinomial(torch.ones(self.n_components, device=x.device), x.size(0), replacement=True)
-        x = self.conv1(x, indices)
+        x = self.conv1(x)
         for layer in self.conv2:
             x = layer(x, indices)
         for layer in self.conv3:
@@ -157,13 +159,14 @@ class StoWideResNet(nn.Module):
             x = layer(x, indices)
         x = self.relu(self.bn(x))
         x = self.avg_pool(x)
-        x = self.fc1(x.flatten(start_dim=1, end_dim=-1), indices)
+        x = x.flatten(start_dim=1, end_dim=-1)
+        x = self.fc1(self.sl(x, indices))
         x = F.log_softmax(x, dim=-1)
         x = x.reshape((-1, L) + x.shape[1:])
         return x
 
     def kl(self, n_sample):
-        return sum(l.kl(n_sample) for l in self.conv2)+sum(l.kl(n_sample) for l in self.conv3)+sum(l.kl(n_sample) for l in self.conv4)+self.fc1.kl(n_sample)
+        return sum(l.kl(n_sample) for l in self.conv2)+sum(l.kl(n_sample) for l in self.conv3)+sum(l.kl(n_sample) for l in self.conv4)+self.sl.kl(n_sample)
 
     def negative_loglikelihood(self, x, y, L, return_prob=False):
         y_pred = self.forward(x, L*self.n_components, indices=torch.arange(0, self.n_components, device=x.device).repeat((x.size(0)*L,)))

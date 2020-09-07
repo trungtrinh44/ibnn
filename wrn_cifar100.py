@@ -13,7 +13,7 @@ from sacred.observers import FileStorageObserver
 from datasets import get_data_loader, infinite_wrapper
 from models import DetWideResNet, StoWideResNet, DropWideResNet, count_parameters
 
-EXPERIMENT = 'wrn_cifar10'
+EXPERIMENT = 'wrn_cifar100'
 BASE_DIR = os.path.join('implicit_runs', EXPERIMENT)
 ex = Experiment(EXPERIMENT)
 ex.observers.append(FileStorageObserver(BASE_DIR))
@@ -80,7 +80,7 @@ def get_kl_weight(kl_min, kl_max, last_iter):
 def get_model(model_type, n_per_block, k_factor, init_method, activation, init_prior_mean, init_prior_std, n_components,
               device, sgd_params, lr_scheduler, det_params, sto_params, dropout):
     if model_type == 'stochastic':
-        model = StoWideResNet(32, 3, 10, n_per_block=n_per_block, k=k_factor, init_method=init_method, 
+        model = StoWideResNet(32, 3, 100, n_per_block=n_per_block, k=k_factor, init_method=init_method, 
                               prior_mean=init_prior_mean, prior_std=init_prior_std, n_components=n_components)
         detp = []
         stop = []
@@ -99,7 +99,7 @@ def get_model(model_type, n_per_block, k_factor, init_method, activation, init_p
             }], **sgd_params)
         scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, [lambda e: lr_scheduler['gamma']**(bisect(lr_scheduler['milestones'], e)), lambda e: 1])
     elif model_type == 'dropout':
-        model = DropWideResNet(32, 3, dropout, 10, n_per_block, k_factor, init_method)
+        model = DropWideResNet(32, 3, dropout, 100, n_per_block, k_factor, init_method)
         optimizer = torch.optim.SGD(
             [{
                 'params': model.parameters(),
@@ -107,7 +107,7 @@ def get_model(model_type, n_per_block, k_factor, init_method, activation, init_p
             }], **sgd_params)
         scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, **lr_scheduler)
     else:
-        model = DetWideResNet(32, 3, dropout, 10, n_per_block, k_factor, init_method)
+        model = DetWideResNet(32, 3, dropout, 100, n_per_block, k_factor, init_method)
         optimizer = torch.optim.SGD(
             [{
                 'params': model.parameters(),
@@ -120,7 +120,7 @@ def get_model(model_type, n_per_block, k_factor, init_method, activation, init_p
 
 @ex.capture
 def get_dataloader(batch_size, validation, validation_fraction, seed):
-    return get_data_loader('wrn_cifar10', batch_size, validation, validation_fraction, seed)
+    return get_data_loader('wrn_cifar100', batch_size, validation, validation_fraction, seed)
 
 
 @ex.capture

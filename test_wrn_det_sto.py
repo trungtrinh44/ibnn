@@ -9,7 +9,7 @@ from scipy.stats import entropy
 from sklearn.metrics import confusion_matrix
 
 from datasets import get_data_loader
-from models import DetWideResNet, StoWideResNet, DropWideResNet, get_wrn_model_from_config, ECELoss
+from models import DetWideResNet, StoWideResNet, DropWideResNet, get_wrn_model_from_config, ECELoss, update_bn
 from utils import (plot_auc, plot_calibration_curve, plot_filters, plot_mean_std,
                    plot_prior_var, plot_samples, RunningMeanStd)
 
@@ -110,14 +110,16 @@ if __name__ == "__main__":
     with open(os.path.join(args.root, 'config.json')) as inp:
         config = json.load(inp)
     config['model_type'] = 'deterministic'
+    config['dropout'] = 0.0
+    train_loader, test_loader = get_data_loader(args.experiment, args.batch_size, test_only=False)
     model = get_wrn_model_from_config(config, args.width, args.height, args.in_channels, args.classes)
     model.load_state_dict(torch.load(checkpoint, map_location=device), strict=False)
     model.to(device)
+    update_bn(train_loader, model, device)
     torch.save(model.state_dict(), os.path.join(args.root, 'det_checkpoint.pt'))
     args.root = os.path.join(args.root, args.experiment)
     os.makedirs(args.root, exist_ok=True)
     text_path = os.path.join(args.root, 'det_result.json')
-    test_loader = get_data_loader(args.experiment, args.batch_size, test_only=True)
     y_prob, y_true, acc, tnll, nll_miss = test_model_deterministic(model, test_loader, device)
     pred_entropy = entropy(y_prob, axis=1)
     np.save(os.path.join(args.root, 'det_pred_entropy.npy'), pred_entropy)

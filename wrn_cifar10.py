@@ -134,31 +134,20 @@ def get_logger(_run, _log):
 
 
 @ex.capture
-def test_mll(model, loader, device, num_test_sample):
-    model.eval()
-    with torch.no_grad():
-        mll = 0
-        for bx, by in loader:
-            bx = bx.to(device)
-            by = by.to(device)
-            mll += model.marginal_loglikelihood_loss(
-                bx, by, num_test_sample).item() * len(by)
-        mll /= len(loader.dataset)
-    return mll
-
-
-@ex.capture
 def test_nll(model, loader, device, num_test_sample, model_type):
     model.eval()
     with torch.no_grad():
         nll = 0
+        acc = 0
         for bx, by in loader:
             bx = bx.to(device)
             by = by.to(device)
-            nll += model.negative_loglikelihood(
-                bx, by, num_test_sample).item() * len(by)
+            bnll, pred = model.negative_loglikelihood(bx, by, num_test_sample, True)
+            nll += bnll.item() * bx.size(0)
+            acc += (pred.exp().mean(1).argmax(-1) == by).sum().item()
+        acc /= len(loader.dataset)
         nll /= len(loader.dataset)
-    return nll
+    return nll, acc
 
 
 @ex.automain
@@ -207,20 +196,22 @@ def main(_run, model_type, num_train_sample, num_test_sample, device, validation
             if i % validate_freq == 0:
                 if validation:
                     with torch.no_grad():
-                        nll = test_nll(model, valid_loader)
+                        nll, acc = test_nll(model, valid_loader)
                     if best_nll >= nll:
                         best_nll = nll
                         torch.save(model.state_dict(), checkpoint_dir)
                         logger.info('Save checkpoint')
                     ex.log_scalar('nll.valid', nll, i)
-                    logger.info("VB Epoch %d: validation NLL %.4f", i, nll)
+                    ex.log_scalar('acc.valid', acc, i)
+                    logger.info("VB Epoch %d: validation NLL %.4f, acc %.4f", i, nll, acc)
                 else:
                     torch.save(model.state_dict(), checkpoint_dir)
                     logger.info('Save checkpoint')
                 with torch.no_grad():
-                    nll = test_nll(model, test_loader)
+                    nll, acc = test_nll(model, test_loader)
                 ex.log_scalar('nll.test', nll, i)
-                logger.info("VB Epoch %d: test NLL %.4f", i, nll)
+                ex.log_scalar('acc.test', acc, i)
+                logger.info("VB Epoch %d: test NLL %.4f, acc %.4f", i, nll, acc)
                 model.train()
         model.load_state_dict(torch.load(checkpoint_dir, map_location=device))
         tnll = 0
@@ -231,7 +222,8 @@ def main(_run, model_type, num_train_sample, num_test_sample, device, validation
             for bx, by in test_loader:
                 bx = bx.to(device)
                 by = by.to(device)
-                prob = model.forward(bx, num_test_sample*model.n_components, indices=torch.arange(0, model.n_components, device=bx.device).repeat((bx.size(0)*num_test_sample,)))
+                indices = torch.empty(bx.size(0)*num_test_sample, dtype=torch.long, device=bx.device)
+                prob = torch.cat([model.forward(bx, num_test_sample, indices=torch.full((bx.size(0)*num_test_sample,), idx, out=indices, device=bx.device, dtype=torch.long)) for idx in range(model.n_components)], dim=1)
                 y_target = by.unsqueeze(1).repeat(1, num_test_sample*model.n_components)
                 bnll = D.Categorical(logits=prob).log_prob(y_target)
                 bnll = torch.logsumexp(bnll, dim=1) - torch.log(torch.tensor(num_test_sample*model.n_components, dtype=torch.float32, device=bnll.device))

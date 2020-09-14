@@ -68,7 +68,7 @@ def my_config():
 @ex.capture(prefix='kl_weight')
 def get_kl_weight(epoch, kl_min, kl_max, last_iter):
     value = (kl_max-kl_min)/last_iter
-    return kl_min + epoch*value
+    return min(kl_max, kl_min + epoch*value)
 
 def schedule(num_epochs, epoch):
     t = epoch / num_epochs

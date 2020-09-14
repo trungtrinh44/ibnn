@@ -4,9 +4,12 @@
 """
 
 import math
-import torch.nn as nn
+
 import torch
+import torch.distributions as D
+import torch.nn as nn
 import torch.nn.functional as F
+
 from .utils import StoLayer
 
 __all__ = ["VGG16", "VGG16BN", "VGG19", "VGG19BN",
@@ -172,6 +175,23 @@ class StoVGG(nn.Module):
         x = x.reshape((-1, L) + x.shape[1:])
         return x
 
+    def negative_loglikelihood(self, x, y, L, return_prob=False):
+        indices = torch.empty(x.size(0)*L, dtype=torch.long, device=x.device)
+        y_pred = torch.cat([self.forward(x, L, indices=torch.full((x.size(0)*L,), idx, out=indices, device=x.device, dtype=torch.long)) for idx in range(self.n_components)], dim=1)
+        y_target = y.unsqueeze(1).repeat(1, L*self.n_components)
+        logp = D.Categorical(logits=y_pred).log_prob(y_target)
+        logp = torch.logsumexp(logp, dim=1) - torch.log(torch.tensor(L*self.n_components, dtype=torch.float32, device=logp.device))
+        if return_prob:
+            return -logp.mean(), y_pred
+        return -logp.mean()
+
+    def vb_loss(self, x, y, loglike_sample, kl_sample, no_kl=False):
+        y_pred = self.forward(x, loglike_sample)
+        y_target = y.unsqueeze(1).repeat(1, loglike_sample)
+        logp = D.Categorical(logits=y_pred).log_prob(y_target)
+        if no_kl:
+            return -logp.mean(), torch.zeros(())
+        return -logp.mean(), self.kl(kl_sample)
 
 class VGG16(VGG):
     def __init__(self, num_classes):

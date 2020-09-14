@@ -13,7 +13,7 @@ from sacred.observers import FileStorageObserver
 from datasets import get_data_loader, infinite_wrapper
 from models import DetWideResNet, StoWideResNet, DropWideResNet, count_parameters
 
-EXPERIMENT = 'wrn_cifar100'
+EXPERIMENT = 'wrn_cifar100_new'
 BASE_DIR = os.path.join('implicit_runs', EXPERIMENT)
 ex = Experiment(EXPERIMENT)
 ex.observers.append(FileStorageObserver(BASE_DIR))
@@ -26,7 +26,7 @@ def my_config():
     kl_weight = {
         'kl_min': 0.0,
         'kl_max': 1.0,
-        'last_iter': 62560
+        'last_iter': 200
     }
     batch_size = 128
     init_prior_mean = 0.0
@@ -38,27 +38,23 @@ def my_config():
     sto_params = {
         'lr': 0.1, 'weight_decay': 0.0
     }
-    lr_scheduler = {
-        'milestones': [23460, 46920, 62560],
-        'gamma': 0.2
-    }
     sgd_params = {
         'momentum': 0.9, 
         'dampening': 0.0,
         'nesterov': True
     }
-    num_iterations = 62600
+    num_epochs = 300
     n_per_block = 4
     k_factor = 2
     init_method = 'normal'
     activation = 'relu'
     validation = True
     validation_fraction = 0.2
-    validate_freq = 1000  # calculate validation frequency
+    validate_freq = 5  # calculate validation frequency
     num_train_sample = 1
     num_kl_sample = 1
     num_test_sample = 1
-    logging_freq = 500
+    logging_freq = 1
     posterior_type = 'mixture_gaussian'
     device = 'cuda'
     kl_div_nbatch = True
@@ -67,21 +63,30 @@ def my_config():
     if not torch.cuda.is_available():
         device = 'cpu'
     start_from_deterministic_checkpoint = ''
+    stochastic_first_layer = False
 
 @ex.capture(prefix='kl_weight')
-def get_kl_weight(kl_min, kl_max, last_iter):
-    kl = kl_min
+def get_kl_weight(epoch, kl_min, kl_max, last_iter):
     value = (kl_max-kl_min)/last_iter
-    while 1:
-        yield min(kl_max, kl)
-        kl += value
+    return kl_min + epoch*value
+
+def schedule(num_epochs, epoch):
+    t = epoch / num_epochs
+    lr_ratio = 0.01
+    if t <= 0.5:
+        factor = 1.0
+    elif t <= 0.9:
+        factor = 1.0 - (1.0 - lr_ratio) * (t - 0.5) / 0.4
+    else:
+        factor = lr_ratio
+    return factor
 
 @ex.capture
 def get_model(model_type, n_per_block, k_factor, init_method, activation, init_prior_mean, init_prior_std, n_components,
-              device, sgd_params, lr_scheduler, det_params, sto_params, dropout):
+              device, sgd_params, det_params, sto_params, dropout, num_epochs, stochastic_first_layer):
     if model_type == 'stochastic':
         model = StoWideResNet(32, 3, 100, n_per_block=n_per_block, k=k_factor, init_method=init_method, 
-                              prior_mean=init_prior_mean, prior_std=init_prior_std, n_components=n_components)
+                              prior_mean=init_prior_mean, prior_std=init_prior_std, n_components=n_components, stochastic_first_layer=stochastic_first_layer)
         detp = []
         stop = []
         for name, param in model.named_parameters():
@@ -97,7 +102,7 @@ def get_model(model_type, n_per_block, k_factor, init_method, activation, init_p
                 'params': stop,
                 **sto_params
             }], **sgd_params)
-        scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, [lambda e: lr_scheduler['gamma']**(bisect(lr_scheduler['milestones'], e)), lambda e: 1])
+        scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, [lambda e: schedule(num_epochs, e), lambda e: 1])
     elif model_type == 'dropout':
         model = DropWideResNet(32, 3, dropout, 100, n_per_block, k_factor, init_method)
         optimizer = torch.optim.SGD(
@@ -105,7 +110,7 @@ def get_model(model_type, n_per_block, k_factor, init_method, activation, init_p
                 'params': model.parameters(),
                 **det_params
             }], **sgd_params)
-        scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, **lr_scheduler)
+        scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, [lambda e: schedule(num_epochs, e)])
     else:
         model = DetWideResNet(32, 3, dropout, 100, n_per_block, k_factor, init_method)
         optimizer = torch.optim.SGD(
@@ -113,7 +118,7 @@ def get_model(model_type, n_per_block, k_factor, init_method, activation, init_p
                 'params': model.parameters(),
                 **det_params
             }], **sgd_params)
-        scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, **lr_scheduler)
+        scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, [lambda e: schedule(num_epochs, e)])
     model.to(device)
     return model, optimizer, scheduler
 
@@ -151,7 +156,7 @@ def test_nll(model, loader, device, num_test_sample, model_type):
 
 
 @ex.automain
-def main(_run, model_type, num_train_sample, num_test_sample, device, validation, validate_freq, num_iterations, logging_freq, kl_div_nbatch, no_kl, num_kl_sample, start_from_deterministic_checkpoint):
+def main(_run, model_type, num_train_sample, num_test_sample, device, validation, validate_freq, num_epochs, logging_freq, kl_div_nbatch, no_kl, num_kl_sample, start_from_deterministic_checkpoint):
     torch.backends.cudnn.benchmark = True
     logger = get_logger()
     if validation:
@@ -161,7 +166,6 @@ def main(_run, model_type, num_train_sample, num_test_sample, device, validation
         train_loader, test_loader = get_dataloader()
         logger.info(f"Train size: {len(train_loader.dataset)}, test size: {len(test_loader.dataset)}")
     n_batch = len(train_loader) if kl_div_nbatch else len(train_loader.dataset)
-    train_loader = infinite_wrapper(train_loader)
     model, optimizer, scheduler = get_model()
     if start_from_deterministic_checkpoint != '':
         model.load_state_dict(
@@ -171,30 +175,28 @@ def main(_run, model_type, num_train_sample, num_test_sample, device, validation
     count_parameters(model, logger)
     logger.info(str(model))
     checkpoint_dir = os.path.join(BASE_DIR, _run._id, 'checkpoint.pt')
-    kl_weight = get_kl_weight()
     # First train mll
     if model_type == 'stochastic':
         model.train()
         train_iter = enumerate(train_loader, 1)
         best_nll = float('inf')
-        for i, (bx, by) in train_iter:
-            if i > num_iterations:
-                break
-            bx = bx.to(device)
-            by = by.to(device)
-            optimizer.zero_grad()
-            loglike, kl = model.vb_loss(bx, by, num_train_sample, num_kl_sample, no_kl)
-            klw = next(kl_weight)
-            loss = loglike + klw*kl/n_batch
-            loss.backward()
-            optimizer.step()
+        for i in range(num_epochs):
+            for bx, by in train_loader:
+                bx = bx.to(device)
+                by = by.to(device)
+                optimizer.zero_grad()
+                loglike, kl = model.vb_loss(bx, by, num_train_sample, num_kl_sample, no_kl)
+                klw = get_kl_weight(epoch=i)
+                loss = loglike + klw*kl/n_batch
+                loss.backward()
+                optimizer.step()
+                ex.log_scalar('loglike.train', loglike.item(), i)
+                ex.log_scalar('kl.train', kl.item(), i)
             scheduler.step()
-            ex.log_scalar('loglike.train', loglike.item(), i)
-            ex.log_scalar('kl.train', kl.item(), i)
-            if i % logging_freq == 0:
+            if (i+1) % logging_freq == 0:
                 logger.info("VB Epoch %d: loglike: %.4f, kl: %.4f, kl weight: %.4f, lr: %.4f",
                             i, loglike.item(), kl.item(), klw, optimizer.param_groups[0]['lr'])
-            if i % validate_freq == 0:
+            if (i+1) % validate_freq == 0:
                 if validation:
                     with torch.no_grad():
                         nll, acc = test_nll(model, valid_loader)
@@ -312,52 +314,58 @@ def main(_run, model_type, num_train_sample, num_test_sample, device, validation
     else:
         model.train()
         best_nll = float('inf')
-        for i, (bx, by) in enumerate(train_loader, 1):
-            if i > num_iterations:
-                break
-            optimizer.zero_grad()
-            bx = bx.to(device)
-            by = by.to(device)
-            pred = model(bx)
-            loss = torch.nn.functional.nll_loss(pred, by)
-            loss.backward()
-            optimizer.step()
+        for i in range(num_epochs):
+            for bx, by in train_loader:
+                optimizer.zero_grad()
+                bx = bx.to(device)
+                by = by.to(device)
+                pred = model(bx)
+                loss = torch.nn.functional.nll_loss(pred, by)
+                loss.backward()
+                optimizer.step()
+                ex.log_scalar("nll.train", loss.item(), i)
             scheduler.step()
-            ex.log_scalar("nll.train", loss.item(), i)
-            if i % logging_freq == 0:
+            if (i+1) % logging_freq == 0:
                 logger.info("Epoch %d: train %.4f, lr %.4f", i, loss.item(), optimizer.param_groups[0]['lr'])
-            if i % validate_freq == 0:
+            if (i+1) % validate_freq == 0:
                 model.eval()
                 if validation:
                     with torch.no_grad():
                         nll = 0
+                        acc = 0
                         for bx, by in valid_loader:
                             bx = bx.to(device)
                             by = by.to(device)
                             pred = model(bx)
-                            nll += torch.nn.functional.nll_loss(
-                                pred, by).item() * len(by)
+                            nll += torch.nn.functional.nll_loss(pred, by).item() * len(by)
+                            acc += (pred.argmax(1) == by).sum().item()
                         nll /= len(valid_loader.dataset)
+                        acc /= len(valid_loader.dataset)
                     if best_nll >= nll:
                         best_nll = nll
                         torch.save(model.state_dict(), checkpoint_dir)
                         logger.info('Save checkpoint')
                     ex.log_scalar('nll.valid', nll, i)
-                    logger.info("Epoch %d: validation %.4f", i, nll)
+                    ex.log_scalar('acc.valid', acc, i)
+                    logger.info("Epoch %d: validation %.4f, %.4f", i, nll, acc)
                 else:
                     torch.save(model.state_dict(), checkpoint_dir)
                     logger.info('Save checkpoint')
                 with torch.no_grad():
                     nll = 0
+                    acc = 0
                     for bx, by in test_loader:
                         bx = bx.to(device)
                         by = by.to(device)
                         pred = model(bx)
                         nll += torch.nn.functional.nll_loss(
                             pred, by).item() * len(by)
+                        acc += (pred.argmax(1) == by).sum().item()
                     nll /= len(test_loader.dataset)
+                    acc /= len(test_loader.dataset)
                 ex.log_scalar('nll.test', nll, i)
-                logger.info("Epoch %d: test %.4f", i, nll)
+                ex.log_scalar('acc.test', acc, i)
+                logger.info("Epoch %d: test %.4f, acc %.4f", i, nll, acc)
                 model.train()
         model.load_state_dict(torch.load(checkpoint_dir, map_location=device))
         tnll = 0

@@ -8,30 +8,28 @@ class Block(nn.Module):
     def __init__(self, in_filters, out_filters, dropout_rate, stride, init_method):
         super(Block, self).__init__()
         self.bn1 = nn.BatchNorm2d(in_filters, eps=1e-5, momentum=0.1)
-        nn.init.uniform_(self.bn1.weight)
         self.relu1 = nn.ReLU(inplace=True)
         self.conv1 = Conv2d(in_filters, out_filters, 3, stride=stride,
-                            padding=1, dilation=1, groups=1, bias=False, padding_mode='zeros', init_method=init_method, activation='relu')
+                            padding=1, dilation=1, groups=1, bias=True, padding_mode='zeros', init_method=init_method, activation='relu')
         self.dropout = nn.Dropout(p=dropout_rate)
         self.bn2 = nn.BatchNorm2d(out_filters, eps=1e-5, momentum=0.1)
-        nn.init.uniform_(self.bn2.weight)
         self.relu2 = nn.ReLU(inplace=True)
         self.conv2 = Conv2d(out_filters, out_filters, 3, stride=1,
-                            padding=1, dilation=1, groups=1, bias=False, padding_mode='zeros', init_method=init_method, activation='relu')
+                            padding=1, dilation=1, groups=1, bias=True, padding_mode='zeros', init_method=init_method, activation='relu')
 
         if stride != 1 or in_filters != out_filters:
             self.has_shortcut = True
             self.shortcut = Conv2d(in_filters, out_filters, 1, stride=stride,
-                                   padding=0, dilation=1, groups=1, bias=False, padding_mode='zeros', init_method=init_method, activation='relu')
+                                   padding=0, dilation=1, groups=1, bias=True, padding_mode='zeros', init_method=init_method, activation='relu')
         else:
             self.has_shortcut = False
 
     def forward(self, x):
-        o = self.relu1(self.bn1(x))
-        out = self.conv1(o)
-        out = self.conv2(self.dropout(self.relu2(self.bn2(out))))
+        out = self.relu1(self.bn1(x))
+        out = self.dropout(self.conv1(out))
+        out = self.conv2(self.relu2(self.bn2(out)))
         if self.has_shortcut:
-            out = out + self.shortcut(o)
+            out = out + self.shortcut(x)
         else:
             out = out + x
         return out
@@ -41,7 +39,7 @@ class DetWideResNet(nn.Module):
     def __init__(self, size, in_channels, dropout, n_classes=10, n_per_block=4, k=2, init_method='normal'):
         super(DetWideResNet, self).__init__()
         self.conv1 = Conv2d(in_channels, 16, 3, stride=1,
-                            padding=1, dilation=1, groups=1, bias=False, padding_mode='zeros', init_method=init_method, activation='relu')
+                            padding=1, dilation=1, groups=1, bias=True, padding_mode='zeros', init_method=init_method, activation='relu')
         self.conv2 = nn.Sequential(
             Block(16, 16*k, dropout, 1, init_method),
             *(
@@ -60,8 +58,7 @@ class DetWideResNet(nn.Module):
                 Block(64*k, 64*k, dropout, 1, init_method) for _ in range(n_per_block-1)
             )
         )
-        self.bn = nn.BatchNorm2d(64*k, eps=1e-5, momentum=0.1)
-        nn.init.uniform_(self.bn.weight)
+        self.bn = nn.BatchNorm2d(64*k, eps=1e-5, momentum=0.9)
         self.relu = nn.ReLU(inplace=True)
         self.avg_pool = nn.AvgPool2d(size//4)
         self.fc1 = Linear(64*k, n_classes, bias=True,
@@ -83,22 +80,20 @@ class StoBlock(nn.Module):
     def __init__(self, in_filters, out_filters, stride, init_method, prior_mean, prior_std, n_components):
         super(StoBlock, self).__init__()
         self.bn1 = nn.BatchNorm2d(in_filters, eps=1e-5, momentum=0.1)
-        nn.init.uniform_(self.bn1.weight)
         self.relu1 = nn.ReLU(inplace=True)
         self.sl1 = StoLayer((in_filters, 1, 1), n_components, prior_mean, prior_std)
         self.conv1 = Conv2d(in_filters, out_filters, 3, stride=stride,
-                            padding=1, dilation=1, groups=1, bias=False, padding_mode='zeros', init_method=init_method, activation='relu')
+                            padding=1, dilation=1, groups=1, bias=True, padding_mode='zeros', init_method=init_method, activation='relu')
         self.bn2 = nn.BatchNorm2d(out_filters, eps=1e-5, momentum=0.1)
-        nn.init.uniform_(self.bn2.weight)
         self.relu2 = nn.ReLU(inplace=True)
         self.sl2 = StoLayer((out_filters, 1, 1), n_components, prior_mean, prior_std)
         self.conv2 = Conv2d(out_filters, out_filters, 3, stride=1,
-                            padding=1, dilation=1, groups=1, bias=False, padding_mode='zeros', init_method=init_method, activation='relu')
+                            padding=1, dilation=1, groups=1, bias=True, padding_mode='zeros', init_method=init_method, activation='relu')
         if stride != 1 or in_filters != out_filters:
             self.has_shortcut = True
             self.sl3 = StoLayer((in_filters, 1, 1), n_components, prior_mean, prior_std)
             self.shortcut = Conv2d(in_filters, out_filters, 1, stride=stride,
-                                   padding=0, dilation=1, groups=1, bias=False, padding_mode='zeros', init_method=init_method, activation='relu')
+                                   padding=0, dilation=1, groups=1, bias=True, padding_mode='zeros', init_method=init_method, activation='relu')
         else:
             self.has_shortcut = False
 
@@ -106,22 +101,24 @@ class StoBlock(nn.Module):
         return self.sl1.kl(n_sample) + self.sl2.kl(n_sample) + (self.sl3.kl(n_sample) if self.has_shortcut else 0.0)
 
     def forward(self, x, indices):
-        o = self.relu1(self.bn1(x))
-        out = self.conv1(self.sl1(o, indices))
+        out = self.relu1(self.bn1(x))
+        out = self.conv1(self.sl1(out, indices))
         out = self.conv2(self.sl2(self.relu2(self.bn2(out)), indices))
         if self.has_shortcut:
-            out = out + self.shortcut(self.sl3(o, indices))
+            out = out + self.shortcut(self.sl3(x, indices))
         else:
             out = out + x
         return out
 
 
 class StoWideResNet(nn.Module):
-    def __init__(self, size, in_channels, n_classes=10, n_per_block=4, k=2, init_method='wrn', prior_mean=0.0, prior_std=1.0, n_components=2):
+    def __init__(self, size, in_channels, n_classes=10, n_per_block=4, k=2, init_method='wrn', prior_mean=0.0, prior_std=1.0, n_components=2, stochastic_first_layer=False):
         super(StoWideResNet, self).__init__()
-        self.sl0 = StoLayer((in_channels, 1, 1), n_components, prior_mean, prior_std)
+        if stochastic_first_layer:
+            self.sl0 = StoLayer((in_channels, 1, 1), n_components, prior_mean, prior_std)
+        self.stochastic_first_layer = stochastic_first_layer
         self.conv1 = Conv2d(in_channels, 16, 3, stride=1,
-                            padding=1, dilation=1, groups=1, bias=False, padding_mode='zeros', init_method=init_method, activation='relu')
+                            padding=1, dilation=1, groups=1, bias=True, padding_mode='zeros', init_method=init_method, activation='relu')
         self.conv2 = nn.ModuleList([
             StoBlock(16, 16*k, 1, init_method, prior_mean=prior_mean, prior_std=prior_std, n_components=n_components),
             *(
@@ -140,8 +137,7 @@ class StoWideResNet(nn.Module):
                 StoBlock(64*k, 64*k, 1, init_method, prior_mean=prior_mean, prior_std=prior_std, n_components=n_components) for _ in range(n_per_block-1)
             )
         ])
-        self.bn = nn.BatchNorm2d(64*k, eps=1e-5, momentum=0.1)
-        nn.init.uniform_(self.bn.weight)
+        self.bn = nn.BatchNorm2d(64*k, eps=1e-5, momentum=0.9)
         self.relu = nn.ReLU(inplace=True)
         self.avg_pool = nn.AvgPool2d(size//4)
         self.sl = StoLayer((64*k, ), n_components, prior_mean, prior_std)
@@ -152,7 +148,9 @@ class StoWideResNet(nn.Module):
         x = torch.repeat_interleave(x, repeats=L, dim=0)
         if indices is None:
             indices = torch.multinomial(torch.ones(self.n_components, device=x.device), x.size(0), replacement=True)
-        x = self.conv1(self.sl0(x, indices))
+        if self.stochastic_first_layer:
+            x = self.sl0(x, indices)
+        x = self.conv1(x)
         for layer in self.conv2:
             x = layer(x, indices)
         for layer in self.conv3:
@@ -168,7 +166,7 @@ class StoWideResNet(nn.Module):
         return x
 
     def kl(self, n_sample):
-        return self.sl0.kl(n_sample) + sum(l.kl(n_sample) for l in self.conv2) + sum(l.kl(n_sample) for l in self.conv3) + sum(l.kl(n_sample) for l in self.conv4) + self.sl.kl(n_sample)
+        return sum(l.kl(n_sample) for l in self.conv2) + sum(l.kl(n_sample) for l in self.conv3) + sum(l.kl(n_sample) for l in self.conv4) + self.sl.kl(n_sample) + (self.sl0.kl(n_sample) if self.stochastic_first_layer else 0.0)
 
     def negative_loglikelihood(self, x, y, L, return_prob=False):
         indices = torch.empty(x.size(0)*L, dtype=torch.long, device=x.device)
@@ -195,17 +193,17 @@ class DropBlock(nn.Module):
         nn.init.uniform_(self.bn1.weight)
         self.relu1 = nn.ReLU(inplace=True)
         self.conv1 = Conv2d(in_filters, out_filters, 3, stride=stride,
-                            padding=1, dilation=1, groups=1, bias=False, padding_mode='zeros', init_method=init_method, activation='relu')
+                            padding=1, dilation=1, groups=1, bias=True, padding_mode='zeros', init_method=init_method, activation='relu')
         self.dropout = dropout
         self.bn2 = nn.BatchNorm2d(out_filters, eps=1e-5, momentum=0.1)
         nn.init.uniform_(self.bn2.weight)
         self.relu2 = nn.ReLU(inplace=True)
         self.conv2 = Conv2d(out_filters, out_filters, 3, stride=1,
-                            padding=1, dilation=1, groups=1, bias=False, padding_mode='zeros', init_method=init_method, activation='relu')
+                            padding=1, dilation=1, groups=1, bias=True, padding_mode='zeros', init_method=init_method, activation='relu')
         if stride != 1 or in_filters != out_filters:
             self.has_shortcut = True
             self.shortcut = Conv2d(in_filters, out_filters, 1, stride=stride,
-                                   padding=0, dilation=1, groups=1, bias=False, padding_mode='zeros', init_method=init_method, activation='relu')
+                                   padding=0, dilation=1, groups=1, bias=True, padding_mode='zeros', init_method=init_method, activation='relu')
         else:
             self.has_shortcut = False
 
@@ -227,7 +225,7 @@ class DropWideResNet(nn.Module):
     def __init__(self, size, in_channels, dropout, n_classes=10, n_per_block=4, k=2, init_method='normal'):
         super(DropWideResNet, self).__init__()
         self.conv1 = Conv2d(in_channels, 16, 3, stride=1,
-                            padding=1, dilation=1, groups=1, bias=False, padding_mode='zeros', init_method=init_method, activation='relu')
+                            padding=1, dilation=1, groups=1, bias=True, padding_mode='zeros', init_method=init_method, activation='relu')
         self.conv2 = nn.Sequential(
             DropBlock(16, 16*k, dropout, 1, init_method),
             *(

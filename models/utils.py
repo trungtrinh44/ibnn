@@ -79,10 +79,10 @@ class Conv2d(nn.Conv2d):
             nn.init.normal_(self.weight, mean=0.0, std=0.01)
             if bias:
                 nn.init.constant_(self.bias, 0.01)
-        elif init_method == 'wrn':
-            nn.init.kaiming_normal_(self.weight)
-            if bias:
-                nn.init.constant_(self.bias, 0.0)
+        # elif init_method == 'wrn':
+        #     nn.init.kaiming_normal_(self.weight)
+        #     if bias:
+        #         nn.init.constant_(self.bias, 0.0)
 
 
 class StoLayer(nn.Module):

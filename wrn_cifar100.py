@@ -64,26 +64,29 @@ def my_config():
         device = 'cpu'
     start_from_deterministic_checkpoint = ''
     stochastic_first_layer = False
+    draw_one_component = False
+    milestones = (0.5, 0.9)
 
 @ex.capture(prefix='kl_weight')
 def get_kl_weight(epoch, kl_min, kl_max, last_iter):
     value = (kl_max-kl_min)/last_iter
     return min(kl_max, kl_min + epoch*value)
 
-def schedule(num_epochs, epoch):
+def schedule(num_epochs, epoch, milestones):
     t = epoch / num_epochs
     lr_ratio = 0.01
-    if t <= 0.5:
+    m1, m2 = milestones
+    if t <= m1:
         factor = 1.0
-    elif t <= 0.9:
-        factor = 1.0 - (1.0 - lr_ratio) * (t - 0.5) / 0.4
+    elif t <= m2:
+        factor = 1.0 - (1.0 - lr_ratio) * (t - m1) / (m2 - m1)
     else:
         factor = lr_ratio
     return factor
 
 @ex.capture
 def get_model(model_type, n_per_block, k_factor, init_method, activation, init_prior_mean, init_prior_std, n_components,
-              device, sgd_params, det_params, sto_params, dropout, num_epochs, stochastic_first_layer):
+              device, sgd_params, det_params, sto_params, dropout, num_epochs, stochastic_first_layer, milestones):
     if model_type == 'stochastic':
         model = StoWideResNet(32, 3, 100, n_per_block=n_per_block, k=k_factor, init_method=init_method, 
                               prior_mean=init_prior_mean, prior_std=init_prior_std, n_components=n_components, stochastic_first_layer=stochastic_first_layer)
@@ -102,7 +105,7 @@ def get_model(model_type, n_per_block, k_factor, init_method, activation, init_p
                 'params': stop,
                 **sto_params
             }], **sgd_params)
-        scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, [lambda e: schedule(num_epochs, e), lambda e: 1])
+        scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, [lambda e: schedule(num_epochs, e, milestones), lambda e: 1])
     elif model_type == 'dropout':
         model = DropWideResNet(32, 3, dropout, 100, n_per_block, k_factor, init_method)
         optimizer = torch.optim.SGD(
@@ -110,7 +113,7 @@ def get_model(model_type, n_per_block, k_factor, init_method, activation, init_p
                 'params': model.parameters(),
                 **det_params
             }], **sgd_params)
-        scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, [lambda e: schedule(num_epochs, e)])
+        scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, [lambda e: schedule(num_epochs, e, milestones)])
     else:
         model = DetWideResNet(32, 3, dropout, 100, n_per_block, k_factor, init_method)
         optimizer = torch.optim.SGD(
@@ -118,7 +121,7 @@ def get_model(model_type, n_per_block, k_factor, init_method, activation, init_p
                 'params': model.parameters(),
                 **det_params
             }], **sgd_params)
-        scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, [lambda e: schedule(num_epochs, e)])
+        scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, [lambda e: schedule(num_epochs, e, milestones)])
     model.to(device)
     return model, optimizer, scheduler
 
@@ -156,7 +159,7 @@ def test_nll(model, loader, device, num_test_sample, model_type):
 
 
 @ex.automain
-def main(_run, model_type, num_train_sample, num_test_sample, device, validation, validate_freq, num_epochs, logging_freq, kl_div_nbatch, no_kl, num_kl_sample, start_from_deterministic_checkpoint):
+def main(_run, model_type, num_train_sample, num_test_sample, device, validation, validate_freq, num_epochs, logging_freq, kl_div_nbatch, no_kl, num_kl_sample, start_from_deterministic_checkpoint, draw_one_component):
     torch.backends.cudnn.benchmark = True
     logger = get_logger()
     if validation:
@@ -185,7 +188,7 @@ def main(_run, model_type, num_train_sample, num_test_sample, device, validation
                 bx = bx.to(device)
                 by = by.to(device)
                 optimizer.zero_grad()
-                loglike, kl = model.vb_loss(bx, by, num_train_sample, num_kl_sample, no_kl)
+                loglike, kl = model.vb_loss(bx, by, num_train_sample, num_kl_sample, no_kl, draw_one_component=draw_one_component)
                 klw = get_kl_weight(epoch=i)
                 loss = loglike + klw*kl/n_batch
                 loss.backward()

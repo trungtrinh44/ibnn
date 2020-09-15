@@ -180,8 +180,11 @@ class StoWideResNet(nn.Module):
             return -logp.mean(), y_pred
         return -logp.mean()
 
-    def vb_loss(self, x, y, loglike_sample, kl_sample, no_kl=False):
-        y_pred = self.forward(x, loglike_sample)
+    def vb_loss(self, x, y, loglike_sample, kl_sample, no_kl=False, draw_one_component=False):
+        if draw_one_component:
+            y_pred = self.forward(x, loglike_sample, indices=torch.multinomial(torch.ones(self.n_components, device=x.device), 1).repeat(x.size(0)*loglike_sample))
+        else:
+            y_pred = self.forward(x, loglike_sample)
         y_target = y.unsqueeze(1).repeat(1, loglike_sample)
         logp = D.Categorical(logits=y_pred).log_prob(y_target)
         if no_kl:

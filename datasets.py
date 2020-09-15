@@ -11,7 +11,7 @@ def infinite_wrapper(loader):
             yield x
 
 
-def get_data_loader(dataset, batch_size=64, validation=False, validation_fraction=0.1, random_state=42, root_dir='data/', test_only=False, degree=0):
+def get_data_loader(dataset, batch_size=64, validation=False, validation_fraction=0.1, random_state=42, root_dir='data/', test_only=False, train_only=False, augment=True, degree=0):
     if dataset == 'mnist' and degree != 0:
         test_data = torchvision.datasets.MNIST(root_dir, train=False, download=True,
                                                transform=torchvision.transforms.Compose([
@@ -175,17 +175,21 @@ def get_data_loader(dataset, batch_size=64, validation=False, validation_fractio
     if dataset == 'wrn_cifar10':
         transform = torchvision.transforms.Compose([
             torchvision.transforms.ToTensor(),
-            torchvision.transforms.Normalize(np.array([125.3, 123.0, 113.9]) / 255.0,
-                                             np.array([63.0, 62.1, 66.7]) / 255.0),
+            torchvision.transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
         ])
+        augment_transform = [
+            torchvision.transforms.RandomCrop(32, padding=4),
+            torchvision.transforms.RandomHorizontalFlip()
+        ] if augment else []
         train_data = torchvision.datasets.CIFAR10(
             root_dir, train=True, download=True,
             transform=torchvision.transforms.Compose([
-                torchvision.transforms.Pad(4, padding_mode='reflect'),
-                torchvision.transforms.RandomHorizontalFlip(),
-                torchvision.transforms.RandomCrop(32),
+                *augment_transform,
                 transform
             ]))
+        if train_only:
+            train_loader = DataLoader(train_data, batch_size=batch_size, pin_memory=True, shuffle=True, drop_last=True)
+            return train_loader
         test_data = torchvision.datasets.CIFAR10(root_dir, train=False, download=True,
                                                  transform=transform)
         test_loader = DataLoader(
@@ -200,28 +204,32 @@ def get_data_loader(dataset, batch_size=64, validation=False, validation_fractio
                                                     shuffle=True, random_state=random_state,
                                                     stratify=train_data.targets)
             train_loader = DataLoader(Subset(
-                train_data, train_idx), batch_size=batch_size, pin_memory=True, shuffle=True)
+                train_data, train_idx), batch_size=batch_size, pin_memory=True, shuffle=True, drop_last=True)
             valid_loader = DataLoader(Subset(
-                valid_data, valid_idx), batch_size=batch_size, pin_memory=True, shuffle=False)
+                valid_data, valid_idx), batch_size=batch_size, pin_memory=True, shuffle=False, drop_last=True)
             return train_loader, valid_loader, test_loader
         else:
             train_loader = DataLoader(
-                train_data, batch_size=batch_size, pin_memory=True, shuffle=True)
+                train_data, batch_size=batch_size, pin_memory=True, shuffle=True, drop_last=True)
             return train_loader, test_loader
     if dataset == 'wrn_cifar100':
         transform = torchvision.transforms.Compose([
             torchvision.transforms.ToTensor(),
-            torchvision.transforms.Normalize(np.array([125.3, 123.0, 113.9]) / 255.0,
-                                             np.array([63.0, 62.1, 66.7]) / 255.0),
+            torchvision.transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
         ])
+        augment_transform = [
+            torchvision.transforms.RandomCrop(32, padding=4),
+            torchvision.transforms.RandomHorizontalFlip()
+        ] if augment else []
         train_data = torchvision.datasets.CIFAR100(
             root_dir, train=True, download=True,
             transform=torchvision.transforms.Compose([
-                torchvision.transforms.Pad(4, padding_mode='reflect'),
-                torchvision.transforms.RandomHorizontalFlip(),
-                torchvision.transforms.RandomCrop(32),
+                *augment_transform,
                 transform
             ]))
+        if train_only:
+            train_loader = DataLoader(train_data, batch_size=batch_size, pin_memory=True, shuffle=True, drop_last=True)
+            return train_loader
         test_data = torchvision.datasets.CIFAR100(root_dir, train=False, download=True,
                                                  transform=transform)
         test_loader = DataLoader(
@@ -236,13 +244,13 @@ def get_data_loader(dataset, batch_size=64, validation=False, validation_fractio
                                                     shuffle=True, random_state=random_state,
                                                     stratify=train_data.targets)
             train_loader = DataLoader(Subset(
-                train_data, train_idx), batch_size=batch_size, pin_memory=True, shuffle=True)
+                train_data, train_idx), batch_size=batch_size, pin_memory=True, shuffle=True, drop_last=True)
             valid_loader = DataLoader(Subset(
-                valid_data, valid_idx), batch_size=batch_size, pin_memory=True, shuffle=False)
+                valid_data, valid_idx), batch_size=batch_size, pin_memory=True, shuffle=False, drop_last=True)
             return train_loader, valid_loader, test_loader
         else:
             train_loader = DataLoader(
-                train_data, batch_size=batch_size, pin_memory=True, shuffle=True)
+                train_data, batch_size=batch_size, pin_memory=True, shuffle=True, drop_last=True)
             return train_loader, test_loader
     if dataset == 'cifar10':
         train_data = torchvision.datasets.CIFAR10(

@@ -66,6 +66,7 @@ def my_config():
     stochastic_first_layer = False
     draw_one_component = False
     milestones = (0.5, 0.9)
+    gaussian_approx = False
 
 @ex.capture(prefix='kl_weight')
 def get_kl_weight(epoch, kl_min, kl_max, last_iter):
@@ -159,7 +160,7 @@ def test_nll(model, loader, device, num_test_sample, model_type):
 
 
 @ex.automain
-def main(_run, model_type, num_train_sample, num_test_sample, device, validation, validate_freq, num_epochs, logging_freq, kl_div_nbatch, no_kl, num_kl_sample, start_from_deterministic_checkpoint, draw_one_component):
+def main(_run, model_type, num_train_sample, num_test_sample, device, validation, validate_freq, num_epochs, logging_freq, kl_div_nbatch, no_kl, num_kl_sample, start_from_deterministic_checkpoint, draw_one_component, gaussian_approx):
     torch.backends.cudnn.benchmark = True
     logger = get_logger()
     if validation:
@@ -188,7 +189,7 @@ def main(_run, model_type, num_train_sample, num_test_sample, device, validation
                 bx = bx.to(device)
                 by = by.to(device)
                 optimizer.zero_grad()
-                loglike, kl = model.vb_loss(bx, by, num_train_sample, num_kl_sample, no_kl, draw_one_component=draw_one_component)
+                loglike, kl = model.vb_loss(bx, by, num_train_sample, num_kl_sample, no_kl, draw_one_component=draw_one_component, gaussian_approx=gaussian_approx)
                 klw = get_kl_weight(epoch=i)
                 loss = loglike + klw*kl/n_batch
                 loss.backward()

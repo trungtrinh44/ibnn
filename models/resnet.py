@@ -99,8 +99,8 @@ class StoBlock(nn.Module):
         else:
             self.has_shortcut = False
 
-    def kl(self, n_sample):
-        return self.sl1.kl(n_sample) + self.sl2.kl(n_sample) + (self.sl3.kl(n_sample) if self.has_shortcut else 0.0)
+    def kl(self, n_sample, gaussian_approx=False):
+        return self.sl1.kl(n_sample, gaussian_approx) + self.sl2.kl(n_sample, gaussian_approx) + (self.sl3.kl(n_sample, gaussian_approx) if self.has_shortcut else 0.0)
 
     def forward(self, x, indices):
         out = self.relu1(self.bn1(x))
@@ -167,8 +167,8 @@ class StoWideResNet(nn.Module):
         x = x.reshape((-1, L) + x.shape[1:])
         return x
 
-    def kl(self, n_sample):
-        return sum(l.kl(n_sample) for l in self.conv2) + sum(l.kl(n_sample) for l in self.conv3) + sum(l.kl(n_sample) for l in self.conv4) + self.sl.kl(n_sample) + (self.sl0.kl(n_sample) if self.stochastic_first_layer else 0.0)
+    def kl(self, n_sample, gaussian_approx=False):
+        return sum(l.kl(n_sample, gaussian_approx) for l in self.conv2) + sum(l.kl(n_sample, gaussian_approx) for l in self.conv3) + sum(l.kl(n_sample, gaussian_approx) for l in self.conv4) + self.sl.kl(n_sample, gaussian_approx) + (self.sl0.kl(n_sample, gaussian_approx) if self.stochastic_first_layer else 0.0)
 
     def negative_loglikelihood(self, x, y, L, return_prob=False):
         indices = torch.empty(x.size(0)*L, dtype=torch.long, device=x.device)
@@ -180,7 +180,7 @@ class StoWideResNet(nn.Module):
             return -logp.mean(), y_pred
         return -logp.mean()
 
-    def vb_loss(self, x, y, loglike_sample, kl_sample, no_kl=False, draw_one_component=False):
+    def vb_loss(self, x, y, loglike_sample, kl_sample, no_kl=False, draw_one_component=False, gaussian_approx=False):
         if draw_one_component:
             y_pred = self.forward(x, loglike_sample, indices=torch.multinomial(torch.ones(self.n_components, device=x.device), 1).repeat(x.size(0)*loglike_sample))
         else:
@@ -189,7 +189,7 @@ class StoWideResNet(nn.Module):
         logp = D.Categorical(logits=y_pred).log_prob(y_target)
         if no_kl:
             return -logp.mean(), torch.zeros(())
-        return -logp.mean(), self.kl(kl_sample)
+        return -logp.mean(), self.kl(kl_sample, gaussian_approx)
 
 class DropBlock(nn.Module):
     def __init__(self, in_filters, out_filters, dropout, stride, init_method):

@@ -67,7 +67,7 @@ class StoWideBasic(nn.Module):
         self.conv2 = nn.Conv2d(
             planes, planes, kernel_size=3, stride=stride, padding=1, bias=True
         )
-
+        self.shortcut = nn.Sequential()
         if stride != 1 or in_planes != planes:
             self.has_shortcut = True
             self.sl3 = StoLayer((in_planes, 1, 1), n_components, prior_mean, prior_std)
@@ -85,7 +85,8 @@ class StoWideBasic(nn.Module):
             self.sl2(F.relu(self.bn2(out)), indices)
         )
         if self.has_shortcut:
-            out = out + self.shortcut(self.sl3(x, indices))
+            x = self.sl3(x, indices)
+        out = out + self.shortcut(x)
 
         return out
     

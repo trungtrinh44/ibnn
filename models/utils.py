@@ -100,22 +100,19 @@ class StoLayer(nn.Module):
         self.prior_std = nn.Parameter(torch.tensor(prior_std), requires_grad=False)
     
     def get_input_sample(self, input, indices):
-        mean = self.posterior_mean.repeat((1, 1, *input.shape[2:]))
-        std = F.softplus(self.posterior_std).repeat((1, 1, *input.shape[2:]))
-        components = D.Normal(mean[indices], std[indices])
-        return components.rsample()
+        mean = self.posterior_mean[indices]
+        std = F.softplus(self.posterior_std)[indices]
+        epsilon = torch.randn_like(input)
+        return mean + std*epsilon
 
     def forward(self, x, indices):
         x = x * self.get_input_sample(x, indices)
         return x
     
-    def kl(self, n_sample, gaussian_approx=False):
+    def kl(self):
         mean = self.posterior_mean.mean(dim=0)
         std = F.softplus(self.posterior_std)
-        if gaussian_approx:
-            std = (std.pow(2.0) + self.posterior_mean.pow(2.0) - mean.pow(2.0).unsqueeze(0)).mean(dim=0).pow(0.5)
-        else:
-            std = std.pow(2.0).sum(dim=0).pow(0.5) / self.posterior_std.size(0)
+        std = ((std.pow(2.0) + self.posterior_mean.pow(2.0)).mean(dim=0) - mean.pow(2.0)).pow(0.5)
         components = D.Normal(mean, std)
         prior = D.Normal(self.prior_mean, self.prior_std)
         return D.kl_divergence(components, prior).sum()

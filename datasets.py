@@ -136,43 +136,7 @@ def get_data_loader(dataset, batch_size=64, validation=False, validation_fractio
         test_loader = DataLoader(
             test_data, batch_size=batch_size, pin_memory=True, shuffle=False)
         return test_loader
-    if dataset == 'wrn_cifar10_legacy':
-        train_data = torchvision.datasets.CIFAR10(
-            root_dir, train=True, download=True,
-            transform=torchvision.transforms.Compose([
-                torchvision.transforms.Pad(4, padding_mode='reflect'),
-                torchvision.transforms.RandomHorizontalFlip(),
-                torchvision.transforms.RandomCrop(32),
-                torchvision.transforms.ToTensor(),
-                torchvision.transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
-            ]))
-        test_data = torchvision.datasets.CIFAR10(root_dir, train=False, download=True,
-                                                 transform=torchvision.transforms.Compose([
-                                                     torchvision.transforms.ToTensor(),
-                                                     torchvision.transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))]))
-        test_loader = DataLoader(
-            test_data, batch_size=batch_size, pin_memory=True, shuffle=False)
-        if test_only:
-            return test_loader
-        if validation:
-            valid_data = torchvision.datasets.CIFAR10(root_dir, train=True, download=True,
-                                                      transform=torchvision.transforms.Compose([
-                                                          torchvision.transforms.ToTensor(),
-                                                          torchvision.transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))]))
-            train_idx, valid_idx = train_test_split(np.arange(len(train_data.targets)),
-                                                    test_size=validation_fraction,
-                                                    shuffle=True, random_state=random_state,
-                                                    stratify=train_data.targets)
-            train_loader = DataLoader(Subset(
-                train_data, train_idx), batch_size=batch_size, pin_memory=True, shuffle=True)
-            valid_loader = DataLoader(Subset(
-                valid_data, valid_idx), batch_size=batch_size, pin_memory=True, shuffle=False)
-            return train_loader, valid_loader, test_loader
-        else:
-            train_loader = DataLoader(
-                train_data, batch_size=batch_size, pin_memory=True, shuffle=True)
-            return train_loader, test_loader
-    if dataset == 'wrn_cifar10':
+    if dataset == 'cifar10':
         transform = torchvision.transforms.Compose([
             torchvision.transforms.ToTensor(),
             torchvision.transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
@@ -212,7 +176,7 @@ def get_data_loader(dataset, batch_size=64, validation=False, validation_fractio
             train_loader = DataLoader(
                 train_data, batch_size=batch_size, pin_memory=True, shuffle=True, drop_last=True)
             return train_loader, test_loader
-    if dataset == 'wrn_cifar100':
+    if dataset == 'cifar100':
         transform = torchvision.transforms.Compose([
             torchvision.transforms.ToTensor(),
             torchvision.transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
@@ -251,38 +215,6 @@ def get_data_loader(dataset, batch_size=64, validation=False, validation_fractio
         else:
             train_loader = DataLoader(
                 train_data, batch_size=batch_size, pin_memory=True, shuffle=True, drop_last=True)
-            return train_loader, test_loader
-    if dataset == 'cifar10':
-        train_data = torchvision.datasets.CIFAR10(
-            root_dir, train=True, download=True,
-            transform=torchvision.transforms.Compose([
-                torchvision.transforms.ToTensor(),
-                torchvision.transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))]))
-        test_data = torchvision.datasets.CIFAR10(root_dir, train=False, download=True,
-                                                 transform=torchvision.transforms.Compose([
-                                                     torchvision.transforms.ToTensor(),
-                                                     torchvision.transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))]))
-        test_loader = DataLoader(
-            test_data, batch_size=batch_size, pin_memory=True, shuffle=False)
-        if test_only:
-            return test_loader
-        if validation:
-            valid_data = torchvision.datasets.CIFAR10(root_dir, train=True, download=True,
-                                                      transform=torchvision.transforms.Compose([
-                                                          torchvision.transforms.ToTensor(),
-                                                          torchvision.transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))]))
-            train_idx, valid_idx = train_test_split(np.arange(len(train_data.targets)),
-                                                    test_size=validation_fraction,
-                                                    shuffle=True, random_state=random_state,
-                                                    stratify=train_data.targets)
-            train_loader = DataLoader(Subset(
-                train_data, train_idx), batch_size=batch_size, pin_memory=True, shuffle=True)
-            valid_loader = DataLoader(Subset(
-                valid_data, valid_idx), batch_size=batch_size, pin_memory=True, shuffle=False)
-            return train_loader, valid_loader, test_loader
-        else:
-            train_loader = DataLoader(
-                train_data, batch_size=batch_size, pin_memory=True, shuffle=True)
             return train_loader, test_loader
     if dataset == 'svhn_cifar10_test':
         test_data = torchvision.datasets.SVHN(root_dir, split='test', download=True,

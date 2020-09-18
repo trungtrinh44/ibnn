@@ -162,7 +162,7 @@ def main(_run, model_name, num_train_sample, num_test_sample, device, validation
     else:
         train_loader, test_loader = get_dataloader()
         logger.info(f"Train size: {len(train_loader.dataset)}, test size: {len(test_loader.dataset)}")
-    n_batch = len(train_loader.dataset)
+    n_batch = len(train_loader)
     model, optimizer, scheduler = get_model()
     count_parameters(model, logger)
     logger.info(str(model))
@@ -177,7 +177,7 @@ def main(_run, model_name, num_train_sample, num_test_sample, device, validation
                 optimizer.zero_grad()
                 loglike, kl = model.vb_loss(bx, by, num_train_sample)
                 klw = get_kl_weight(epoch=i)
-                loss = loglike + klw*kl/n_batch
+                loss = loglike + klw*kl/(n_batch*bx.size(0))
                 loss.backward()
                 optimizer.step()
                 ex.log_scalar('loglike.train', loglike.item(), i)

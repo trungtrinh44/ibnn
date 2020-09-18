@@ -126,7 +126,7 @@ class DetWideResNet(nn.Module):
         out = F.relu(self.bn1(out))
         out = F.avg_pool2d(out, 8)
         out = out.view(out.size(0), -1)
-        out = self.linear(out)
+        out = F.log_softmax(self.linear(out), -1)
 
         return out
 
@@ -206,4 +206,4 @@ class DetWideResNet28x10(DetWideResNet):
     
 class StoWideResNet28x10(StoWideResNet):
     def __init__(self, num_classes=10, n_components=2, prior_mean=1.0, prior_std=1.0):
-        super(StoWideResNet28x10, self).__init__(num_classes, depth=28, widen_factor=10, n_components=2, prior_mean=1.0, prior_std=1.0)
+        super(StoWideResNet28x10, self).__init__(num_classes, depth=28, widen_factor=10, n_components=n_components, prior_mean=prior_mean, prior_std=prior_std)

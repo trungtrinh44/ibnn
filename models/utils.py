@@ -100,10 +100,10 @@ class StoLayer(nn.Module):
         self.prior_std = nn.Parameter(torch.tensor(prior_std), requires_grad=False)
     
     def get_input_sample(self, input, indices):
-        mean = self.posterior_mean[indices]
-        std = F.softplus(self.posterior_std)[indices]
-        epsilon = torch.randn_like(input)
-        return mean + std*epsilon
+        mean = self.posterior_mean.expand((-1, -1, *input.shape[2:]))
+        std = F.softplus(self.posterior_std).expand((-1, -1, *input.shape[2:]))
+        components = D.Normal(mean[indices], std[indices])
+        return components.rsample()
 
     def forward(self, x, indices):
         x = x * self.get_input_sample(x, indices)

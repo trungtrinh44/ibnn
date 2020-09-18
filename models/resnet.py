@@ -52,7 +52,7 @@ class WideBasic(nn.Module):
     def forward(self, x):
         out = self.dropout(self.conv1(F.relu(self.bn1(x))))
         out = self.conv2(F.relu(self.bn2(out)))
-        out += self.shortcut(x)
+        out = out + self.shortcut(x)
 
         return out
 
@@ -85,7 +85,7 @@ class StoWideBasic(nn.Module):
             self.sl2(F.relu(self.bn2(out)), indices)
         )
         if self.has_shortcut:
-            out += self.shortcut(self.sl3(x, indices))
+            out = out + self.shortcut(self.sl3(x, indices))
 
         return out
     

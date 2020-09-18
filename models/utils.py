@@ -112,7 +112,7 @@ class StoLayer(nn.Module):
     def kl(self):
         mean = self.posterior_mean.mean(dim=0)
         std = F.softplus(self.posterior_std)
-        std = (std.pow(2.0) + self.posterior_mean.pow(2.0) - mean.pow(2.0).unsqueeze(0)).mean(dim=0).pow(0.5)
+        std = ((std.pow(2.0) + self.posterior_mean.pow(2.0)).mean(dim=0) - mean.pow(2.0)).pow(0.5)
         components = D.Normal(mean, std)
         prior = D.Normal(self.prior_mean, self.prior_std)
         return D.kl_divergence(components, prior).sum()

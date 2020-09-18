@@ -117,7 +117,7 @@ class StoLayer(nn.Module):
         prior = D.Normal(self.prior_mean, self.prior_std)
         return D.kl_divergence(components, prior).sum()
     
-    def extra_repr(self)
+    def extra_repr(self):
         return f"n_components={self.posterior_mean.size(0)}, prior_mean={self.prior_mean.data.item()}, prior_std={self.prior_std.data.item()}"
 
 class ECELoss(nn.Module):

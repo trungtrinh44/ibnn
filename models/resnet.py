@@ -189,14 +189,14 @@ class StoWideResNet(nn.Module):
     def vb_loss(self, x, y, n_sample):
         y = y.unsqueeze(1).expand(-1, n_sample)
         logp = D.Categorical(logits=self.forward(x, n_sample)).log_prob(y).mean()
-        return logp, self.kl()
+        return -logp, self.kl()
     
     def nll(self, x, y, n_sample):
         indices = torch.empty(x.size(0)*n_sample, dtype=torch.long, device=x.device)
         prob = torch.cat([self.forward(x, n_sample, indices=torch.full((x.size(0)*n_sample,), idx, out=indices, device=x.device, dtype=torch.long)) for idx in range(self.n_components)], dim=1)
         logp = D.Categorical(logits=prob).log_prob(y.unsqueeze(1).expand(-1, self.n_components*n_sample))
         logp = torch.logsumexp(logp, 1) - torch.log(torch.tensor(self.n_components*n_sample, dtype=torch.float32, device=x.device))
-        return logp.mean(), prob
+        return -logp.mean(), prob
 
 
 

@@ -136,7 +136,7 @@ def get_logger(_run, _log):
 
 
 @ex.capture
-def test_nll(model, loader, device, num_test_sample, model_type):
+def test_nll(model, loader, device, num_test_sample):
     model.eval()
     with torch.no_grad():
         nll = 0

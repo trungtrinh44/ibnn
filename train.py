@@ -11,7 +11,7 @@ from sacred import Experiment
 from sacred.observers import FileStorageObserver, RunObserver
 
 from datasets import get_data_loader, infinite_wrapper
-from models import DetWideResNet28x10, StoWideResNet28x10, count_parameters
+from models import DetWideResNet28x10, StoWideResNet28x10, StoVGG16, DetVGG16, count_parameters
 
 
 class SetID(RunObserver):
@@ -62,13 +62,15 @@ def my_config():
     posterior_type = 'mixture_gaussian'
     device = 'cuda'
     dropout = 0.3 # for mc-dropout model
+    lr_ratio_det = 0.01
+    lr_ratio_sto = 1/3
     if not torch.cuda.is_available():
         device = 'cpu'
     milestones = (0.5, 0.9)
     dataset = 'cifar100'
-    if dataset == 'cifar100':
+    if dataset == 'cifar100' or dataset == 'vgg_cifar100':
         num_classes = 100
-    elif dataset == 'cifar10':
+    elif dataset == 'cifar10' or dataset == 'vgg_cifar10':
         num_classes = 10
 
 @ex.capture(prefix='kl_weight')
@@ -76,9 +78,8 @@ def get_kl_weight(epoch, kl_min, kl_max, last_iter):
     value = (kl_max-kl_min)/last_iter
     return min(kl_max, kl_min + epoch*value)
 
-def schedule(num_epochs, epoch, milestones):
+def schedule(num_epochs, epoch, milestones, lr_ratio):
     t = epoch / num_epochs
-    lr_ratio = 0.01
     m1, m2 = milestones
     if t <= m1:
         factor = 1.0
@@ -89,7 +90,7 @@ def schedule(num_epochs, epoch, milestones):
     return factor
 
 @ex.capture
-def get_model(model_name, num_classes, prior_mean, prior_std, n_components, device, sgd_params, det_params, sto_params, dropout, num_epochs, milestones):
+def get_model(model_name, num_classes, prior_mean, prior_std, n_components, device, sgd_params, det_params, sto_params, dropout, num_epochs, milestones, lr_ratio_det, lr_ratio_sto):
     if model_name == 'StoWideResNet28x10':
         model = StoWideResNet28x10(num_classes, n_components, prior_mean, prior_std)
         detp = []
@@ -107,7 +108,33 @@ def get_model(model_name, num_classes, prior_mean, prior_std, n_components, devi
                 'params': stop,
                 **sto_params
             }], **sgd_params)
-        scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, [lambda e: schedule(num_epochs, e, milestones), lambda e: 1])
+        scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, [lambda e: schedule(num_epochs, e, milestones, lr_ratio_det), lambda e: schedule(num_epochs, e, milestones, lr_ratio_sto)])
+    elif model_name == 'StoVGG16':
+        model = StoVGG16(num_classes, n_components, prior_mean, prior_std)
+        detp = []
+        stop = []
+        for name, param in model.named_parameters():
+            if 'posterior_mean' in name or 'posterior_std' in name or 'prior_mean' in name or 'prior_std' in name:
+                stop.append(param)
+            else:
+                detp.append(param)
+        optimizer = torch.optim.SGD(
+            [{
+                'params': detp,
+                **det_params
+            },{
+                'params': stop,
+                **sto_params
+            }], **sgd_params)
+        scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, [lambda e: schedule(num_epochs, e, milestones, lr_ratio_det), lambda e: schedule(num_epochs, e, milestones, lr_ratio_sto)])
+    elif model_name == 'DetVGG16':
+        model = DetVGG16(num_classes)
+        optimizer = torch.optim.SGD(
+            [{
+                'params': model.parameters(),
+                **det_params
+            }], **sgd_params)
+        scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, [lambda e: schedule(num_epochs, e, milestones, lr_ratio_det)])
     elif model_name == 'DetWideResNet28x10':
         model = DetWideResNet28x10(num_classes)
         optimizer = torch.optim.SGD(
@@ -115,7 +142,7 @@ def get_model(model_name, num_classes, prior_mean, prior_std, n_components, devi
                 'params': model.parameters(),
                 **det_params
             }], **sgd_params)
-        scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, [lambda e: schedule(num_epochs, e, milestones)])
+        scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, [lambda e: schedule(num_epochs, e, milestones, lr_ratio_det)])
     model.to(device)
     return model, optimizer, scheduler
 
@@ -184,8 +211,8 @@ def main(_run, model_name, num_train_sample, num_test_sample, device, validation
                 ex.log_scalar('kl.train', kl.item(), i)
             scheduler.step()
             if (i+1) % logging_freq == 0:
-                logger.info("VB Epoch %d: loglike: %.4f, kl: %.4f, kl weight: %.4f, lr: %.4f",
-                            i, loglike.item(), kl.item(), klw, optimizer.param_groups[0]['lr'])
+                logger.info("VB Epoch %d: loglike: %.4f, kl: %.4f, kl weight: %.4f, lr1: %.4f, lr2: %.4f",
+                            i, loglike.item(), kl.item(), klw, optimizer.param_groups[0]['lr'], optimizer.param_groups[1]['lr'])
             if (i+1) % validate_freq == 0:
                 if validation:
                     with torch.no_grad():

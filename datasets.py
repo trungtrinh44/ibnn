@@ -216,6 +216,86 @@ def get_data_loader(dataset, batch_size=64, validation=False, validation_fractio
             train_loader = DataLoader(
                 train_data, batch_size=batch_size, pin_memory=True, shuffle=True, drop_last=True)
             return train_loader, test_loader
+    if dataset == 'vgg_cifar10':
+        transform = torchvision.transforms.Compose([
+            torchvision.transforms.ToTensor(),
+            torchvision.transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225)),
+        ])
+        augment_transform = [
+            torchvision.transforms.RandomCrop(32, padding=4),
+            torchvision.transforms.RandomHorizontalFlip()
+        ] if augment else []
+        train_data = torchvision.datasets.CIFAR10(
+            root_dir, train=True, download=True,
+            transform=torchvision.transforms.Compose([
+                *augment_transform,
+                transform
+            ]))
+        if train_only:
+            train_loader = DataLoader(train_data, batch_size=batch_size, pin_memory=True, shuffle=True, drop_last=True)
+            return train_loader
+        test_data = torchvision.datasets.CIFAR10(root_dir, train=False, download=True,
+                                                 transform=transform)
+        test_loader = DataLoader(
+            test_data, batch_size=batch_size, pin_memory=True, shuffle=False)
+        if test_only:
+            return test_loader
+        if validation:
+            valid_data = torchvision.datasets.CIFAR10(root_dir, train=True, download=True,
+                                                      transform=transform)
+            train_idx, valid_idx = train_test_split(np.arange(len(train_data.targets)),
+                                                    test_size=validation_fraction,
+                                                    shuffle=True, random_state=random_state,
+                                                    stratify=train_data.targets)
+            train_loader = DataLoader(Subset(
+                train_data, train_idx), batch_size=batch_size, pin_memory=True, shuffle=True, drop_last=True)
+            valid_loader = DataLoader(Subset(
+                valid_data, valid_idx), batch_size=batch_size, pin_memory=True, shuffle=False, drop_last=True)
+            return train_loader, valid_loader, test_loader
+        else:
+            train_loader = DataLoader(
+                train_data, batch_size=batch_size, pin_memory=True, shuffle=True, drop_last=True)
+            return train_loader, test_loader
+    if dataset == 'vgg_cifar100':
+        transform = torchvision.transforms.Compose([
+            torchvision.transforms.ToTensor(),
+            torchvision.transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225)),
+        ])
+        augment_transform = [
+            torchvision.transforms.RandomCrop(32, padding=4),
+            torchvision.transforms.RandomHorizontalFlip()
+        ] if augment else []
+        train_data = torchvision.datasets.CIFAR100(
+            root_dir, train=True, download=True,
+            transform=torchvision.transforms.Compose([
+                *augment_transform,
+                transform
+            ]))
+        if train_only:
+            train_loader = DataLoader(train_data, batch_size=batch_size, pin_memory=True, shuffle=True, drop_last=True)
+            return train_loader
+        test_data = torchvision.datasets.CIFAR100(root_dir, train=False, download=True,
+                                                 transform=transform)
+        test_loader = DataLoader(
+            test_data, batch_size=batch_size, pin_memory=True, shuffle=False)
+        if test_only:
+            return test_loader
+        if validation:
+            valid_data = torchvision.datasets.CIFAR100(root_dir, train=True, download=True,
+                                                      transform=transform)
+            train_idx, valid_idx = train_test_split(np.arange(len(train_data.targets)),
+                                                    test_size=validation_fraction,
+                                                    shuffle=True, random_state=random_state,
+                                                    stratify=train_data.targets)
+            train_loader = DataLoader(Subset(
+                train_data, train_idx), batch_size=batch_size, pin_memory=True, shuffle=True, drop_last=True)
+            valid_loader = DataLoader(Subset(
+                valid_data, valid_idx), batch_size=batch_size, pin_memory=True, shuffle=False, drop_last=True)
+            return train_loader, valid_loader, test_loader
+        else:
+            train_loader = DataLoader(
+                train_data, batch_size=batch_size, pin_memory=True, shuffle=True, drop_last=True)
+            return train_loader, test_loader
     if dataset == 'svhn_cifar10_test':
         test_data = torchvision.datasets.SVHN(root_dir, split='test', download=True,
                                                  transform=torchvision.transforms.Compose([

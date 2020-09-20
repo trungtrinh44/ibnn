@@ -268,16 +268,16 @@ class StochasticLeNet(nn.Module):
         kl = self.conv2.kl(L) + self.fc1.kl(L) + self.fc2.kl(L)
         return -logp.mean(), kl
 
-def get_model_from_config(config, width, height, in_channels, n_classes):
-    if config['model_type'] == 'deterministic':
-        model = DeterministicLeNet(width, height, in_channels,
-                                   config['conv_hiddens'], config['fc_hidden'], n_classes, config['init_method'], config['activation'])
-    elif config['model_type'] == 'dropout':
-        model = DropoutLeNet(width, height, in_channels,
-                             config['conv_hiddens'], config['fc_hidden'], n_classes, config['init_method'], config['activation'], config['dropout'])
-    else:
-        model = StochasticLeNet(width, height, in_channels, config['conv_hiddens'], config['fc_hidden'], n_classes, config['init_method'], config['activation'],
-                                config['posterior_p'], config['posterior_std'], config['init_prior_mean'], config['init_prior_std'],
-                                train_posterior_std=config.get('train_posterior_std', False), posterior_type=config.get('posterior_type', 'mixture_gaussian'),
-                                train_posterior_mean=config.get('train_posterior_mean', False), posterior_mean=config.get('posterior_mean', [0.0, 1.0]))
-    return model
+# def get_model_from_config(config, width, height, in_channels, n_classes):
+#     if config['model_type'] == 'deterministic':
+#         model = DeterministicLeNet(width, height, in_channels,
+#                                    config['conv_hiddens'], config['fc_hidden'], n_classes, config['init_method'], config['activation'])
+#     elif config['model_type'] == 'dropout':
+#         model = DropoutLeNet(width, height, in_channels,
+#                              config['conv_hiddens'], config['fc_hidden'], n_classes, config['init_method'], config['activation'], config['dropout'])
+#     else:
+#         model = StochasticLeNet(width, height, in_channels, config['conv_hiddens'], config['fc_hidden'], n_classes, config['init_method'], config['activation'],
+#                                 config['posterior_p'], config['posterior_std'], config['init_prior_mean'], config['init_prior_std'],
+#                                 train_posterior_std=config.get('train_posterior_std', False), posterior_type=config.get('posterior_type', 'mixture_gaussian'),
+#                                 train_posterior_mean=config.get('train_posterior_mean', False), posterior_mean=config.get('posterior_mean', [0.0, 1.0]))
+#     return model

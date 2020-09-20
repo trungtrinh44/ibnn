@@ -50,9 +50,9 @@ class WideBasic(nn.Module):
             )
 
     def forward(self, x):
-        out = self.dropout(self.conv1(F.relu(self.bn1(x))))
-        out = self.conv2(F.relu(self.bn2(out)))
-        out = out + self.shortcut(x)
+        out = self.dropout(self.conv1(F.relu(self.bn1(x), inplace=True)))
+        out = self.conv2(F.relu(self.bn2(out), inplace=True))
+        out += self.shortcut(x)
 
         return out
 
@@ -79,14 +79,14 @@ class StoWideBasic(nn.Module):
 
     def forward(self, x, indices):
         out = self.conv1(
-            self.sl1(F.relu(self.bn1(x)), indices)
+            self.sl1(F.relu(self.bn1(x), inplace=True), indices)
         )
         out = self.conv2(
-            self.sl2(F.relu(self.bn2(out)), indices)
+            self.sl2(F.relu(self.bn2(out), inplace=True), indices)
         )
         if self.has_shortcut:
             x = self.sl3(x, indices)
-        out = out + self.shortcut(x)
+        out += self.shortcut(x)
 
         return out
     
@@ -124,7 +124,7 @@ class DetWideResNet(nn.Module):
         out = self.layer1(out)
         out = self.layer2(out)
         out = self.layer3(out)
-        out = F.relu(self.bn1(out))
+        out = F.relu(self.bn1(out), inplace=True)
         out = F.avg_pool2d(out, 8)
         out = out.view(out.size(0), -1)
         out = F.log_softmax(self.linear(out), -1)
@@ -177,7 +177,7 @@ class StoWideResNet(nn.Module):
             out = layer(out, indices)
         for layer in self.layer3:
             out = layer(out, indices)
-        out = F.relu(self.bn1(out))
+        out = F.relu(self.bn1(out), inplace=True)
         out = F.avg_pool2d(out, 8)
         out = out.view(out.size(0), -1)
         out = F.log_softmax(self.linear(self.sl2(out, indices)), -1)

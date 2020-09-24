@@ -45,7 +45,7 @@ def my_config():
         'lr': 0.1, 'weight_decay': 5e-4
     }
     sto_params = {
-        'lr': 0.1, 'weight_decay': 0.0
+        'lr': 0.1, 'weight_decay': 0.0, 'momentum': 0.0, 'nesterov': False
     }
     sgd_params = {
         'momentum': 0.9, 
@@ -67,7 +67,6 @@ def my_config():
     if not torch.cuda.is_available():
         device = 'cpu'
     milestones = (0.5, 0.9)
-    posterior_mean_var = 0.25
     dataset = 'cifar100'
     if dataset == 'cifar100' or dataset == 'vgg_cifar100':
         num_classes = 100
@@ -91,7 +90,7 @@ def schedule(num_epochs, epoch, milestones, lr_ratio):
     return factor
 
 @ex.capture
-def get_model(model_name, num_classes, prior_mean, prior_std, n_components, device, sgd_params, det_params, sto_params, dropout, num_epochs, milestones, lr_ratio_det, lr_ratio_sto, posterior_mean_var):
+def get_model(model_name, num_classes, prior_mean, prior_std, n_components, device, sgd_params, det_params, sto_params, dropout, num_epochs, milestones, lr_ratio_det, lr_ratio_sto):
     if model_name == 'StoWideResNet28x10':
         model = StoWideResNet28x10(num_classes, n_components, prior_mean, prior_std)
         detp = []
@@ -119,8 +118,6 @@ def get_model(model_name, num_classes, prior_mean, prior_std, n_components, devi
                 stop.append(param)
             else:
                 detp.append(param)
-        for m in model.sto_modules:
-            torch.nn.init.normal_(m.posterior_mean, 1.0, posterior_mean_var)
         optimizer = torch.optim.SGD(
             [{
                 'params': detp,

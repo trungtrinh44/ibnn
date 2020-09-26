@@ -181,7 +181,8 @@ def test_nll(model, loader, device, num_test_sample):
 
 @ex.automain
 def main(_run, model_name, num_train_sample, num_test_sample, device, validation, validate_freq, num_epochs, logging_freq):
-    torch.backends.cudnn.benchmark = True
+    torch.backends.cudnn.benchmark = False
+    torch.backends.cudnn.deterministic = True
     logger = get_logger()
     if validation:
         train_loader, valid_loader, test_loader = get_dataloader()

@@ -145,7 +145,8 @@ class StoVGG(nn.Module):
                 m.bias.data.zero_()
 
     def forward(self, x, L=1, indices=None):
-        x = torch.repeat_interleave(x, L, dim=0)
+        if L > 1:
+            x = torch.repeat_interleave(x, L, dim=0)
         if indices is None:
             indices = torch.multinomial(torch.ones(self.n_components, device=x.device), x.size(0), True)
         for layer in self.features:

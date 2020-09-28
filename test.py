@@ -11,6 +11,42 @@ from sklearn.metrics import confusion_matrix
 from datasets import get_data_loader
 from models import get_model_from_config, ECELoss
 
+def test_dropout(model, dataloader, device, num_test_sample):
+    tnll = 0
+    acc = [0, 0, 0]
+    nll_miss = 0
+    y_prob = []
+    y_true = []
+    y_prob_all = []
+    model.train()
+    with torch.no_grad():
+        for bx, by in dataloader:
+            bx = bx.to(device)
+            by = by.to(device)
+            prob = torch.cat([model.forward(bx).unsqueeze(1) for _ in range(num_test_sample)], dim=1)
+            y_target = by.unsqueeze(1).expand(-1, num_test_sample)
+            bnll = D.Categorical(logits=prob).log_prob(y_target)
+            bnll = torch.logsumexp(bnll, dim=1) - torch.log(torch.tensor(num_test_sample, dtype=torch.float32, device=bnll.device))
+            tnll -= bnll.sum().item()
+            vote = prob.exp().mean(dim=1)
+            top3 = torch.topk(vote, k=3, dim=1, largest=True, sorted=True)[1]
+            y_prob_all.append(prob.exp().cpu().numpy())
+            y_prob.append(vote.cpu().numpy())
+            y_true.append(by.cpu().numpy())
+            y_miss = top3[:, 0] != by
+            if y_miss.sum().item() > 0:
+                nll_miss -= bnll[y_miss].sum().item()
+            for k in range(3):
+                acc[k] += (top3[:, k] == by).sum().item()
+    nll_miss /= len(dataloader.dataset) - acc[0]
+    tnll /= len(dataloader.dataset)
+    for k in range(3):
+        acc[k] /= len(dataloader.dataset)
+    acc = np.cumsum(acc)
+    y_prob = np.concatenate(y_prob, axis=0)
+    y_true = np.concatenate(y_true, axis=0)
+    y_prob_all = np.concatenate(y_prob_all, axis=0)
+    return y_prob_all, y_prob, y_true, acc, tnll, nll_miss
 
 def test_stochastic(model, dataloader, device, num_test_sample):
     tnll = 0
@@ -95,6 +131,7 @@ if __name__ == "__main__":
     parser.add_argument('--classes', '-c', type=int, default=10)
     parser.add_argument('--batch_size', '-b', type=int, default=64)
     parser.add_argument('--ece_bins', type=int, default=15)
+    parser.add_argument('--dropout', action='store_true')
     args = parser.parse_args()
 
     device = args.device if torch.cuda.is_available() else 'cpu'
@@ -104,17 +141,20 @@ if __name__ == "__main__":
         config = json.load(inp)
     args.root = os.path.join(args.root, config['dataset'])
     os.makedirs(args.root, exist_ok=True)
-    text_path = os.path.join(args.root, 'result.json')
+    text_path = os.path.join(args.root, f'{"dropout_" if args.dropout else ""}result.json')
     test_loader = get_data_loader(config['dataset'], args.batch_size, test_only=True)
     model = get_model_from_config(config)
     model.load_state_dict(torch.load(checkpoint, map_location=device))
     model.to(device)
     if config['model_name'].startswith('Det'):
-        y_prob, y_true, acc, tnll, nll_miss = test_model_deterministic(model, test_loader, device)
+        if args.dropout:
+            y_prob_all, y_prob, y_true, acc, tnll, nll_miss = test_dropout(model, test_loader, device, args.num_samples)
+        else:
+            y_prob, y_true, acc, tnll, nll_miss = test_model_deterministic(model, test_loader, device)
     elif config['model_name'].startswith('Sto'):
         y_prob_all, y_prob, y_true, acc, tnll, nll_miss = test_stochastic(model, test_loader, device, args.num_samples)
     pred_entropy = entropy(y_prob, axis=1)
-    np.save(os.path.join(args.root, 'pred_entropy.npy'), pred_entropy)
+    np.save(os.path.join(args.root, f'{"dropout_" if args.dropout else ""}pred_entropy.npy'), pred_entropy)
     ece = ECELoss(args.ece_bins)
     ece_val = ece(torch.from_numpy(y_prob), torch.from_numpy(y_true)).item()
     result = {

@@ -148,7 +148,7 @@ class StoVGG(nn.Module):
         if L > 1:
             x = torch.repeat_interleave(x, L, dim=0)
         if indices is None:
-            indices = torch.multinomial(torch.ones(self.n_components, device=x.device), x.size(0), True)
+            indices = torch.arange(x.size(0), dtype=torch.long, device=x.device) % self.n_components
         for layer in self.features:
             if isinstance(layer, StoLayer):
                 x = layer(x, indices)

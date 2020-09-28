@@ -13,6 +13,8 @@ from sacred.observers import FileStorageObserver, RunObserver
 from datasets import get_data_loader, infinite_wrapper
 from models import DetWideResNet28x10, StoWideResNet28x10, StoVGG16, DetVGG16, count_parameters
 
+torch.backends.cudnn.benchmark = True
+torch.backends.cudnn.deterministic = False
 
 class SetID(RunObserver):
     priority = 50  # very high priority
@@ -136,7 +138,7 @@ def get_model(model_name, num_classes, prior_mean, prior_std, n_components, devi
             }], **sgd_params)
         scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, [lambda e: schedule(num_epochs, e, milestones, lr_ratio_det)])
     elif model_name == 'DetWideResNet28x10':
-        model = DetWideResNet28x10(num_classes)
+        model = DetWideResNet28x10(num_classes, dropout_rate=dropout)
         optimizer = torch.optim.SGD(
             [{
                 'params': model.parameters(),
@@ -181,8 +183,6 @@ def test_nll(model, loader, device, num_test_sample):
 
 @ex.automain
 def main(_run, model_name, num_train_sample, num_test_sample, device, validation, validate_freq, num_epochs, logging_freq):
-    torch.backends.cudnn.benchmark = False
-    torch.backends.cudnn.deterministic = True
     logger = get_logger()
     if validation:
         train_loader, valid_loader, test_loader = get_dataloader()

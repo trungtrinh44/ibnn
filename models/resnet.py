@@ -169,7 +169,7 @@ class StoWideResNet(nn.Module):
         if L > 1:
             x = torch.repeat_interleave(x, L, dim=0)
         if indices is None:
-            indices = torch.multinomial(torch.ones(self.n_components, device=x.device), x.size(0), True)
+            indices = torch.arange(x.size(0), dtype=torch.long, device=x.device) % self.n_components
         out = self.sl1(x, indices)
         out = self.conv1(x)
         for layer in self.layer1:
@@ -203,8 +203,8 @@ class StoWideResNet(nn.Module):
 
 
 class DetWideResNet28x10(DetWideResNet):
-    def __init__(self, num_classes=10):
-        super(DetWideResNet28x10, self).__init__(num_classes, depth=28, widen_factor=10)
+    def __init__(self, num_classes=10, dropout_rate=0.0):
+        super(DetWideResNet28x10, self).__init__(num_classes, depth=28, widen_factor=10, dropout_rate=dropout_rate)
     
 class StoWideResNet28x10(StoWideResNet):
     def __init__(self, num_classes=10, n_components=2, prior_mean=1.0, prior_std=1.0):

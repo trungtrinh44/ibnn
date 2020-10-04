@@ -11,7 +11,7 @@ from sacred import Experiment
 from sacred.observers import FileStorageObserver, RunObserver
 
 from datasets import get_data_loader, infinite_wrapper
-from models import DetWideResNet28x10, StoWideResNet28x10, StoVGG16, DetVGG16, count_parameters
+from models import DetWideResNet28x10, StoWideResNet28x10, StoVGG16, DetVGG16, BayesianVGG16, count_parameters
 
 torch.backends.cudnn.benchmark = True
 torch.backends.cudnn.deterministic = False
@@ -69,6 +69,7 @@ def my_config():
     if not torch.cuda.is_available():
         device = 'cpu'
     milestones = (0.5, 0.9)
+    posterior_mean_init = (1.0, 0.5)
     dataset = 'cifar100'
     if dataset == 'cifar100' or dataset == 'vgg_cifar100':
         num_classes = 100
@@ -92,7 +93,7 @@ def schedule(num_epochs, epoch, milestones, lr_ratio):
     return factor
 
 @ex.capture
-def get_model(model_name, num_classes, prior_mean, prior_std, n_components, device, sgd_params, det_params, sto_params, dropout, num_epochs, milestones, lr_ratio_det, lr_ratio_sto):
+def get_model(model_name, num_classes, prior_mean, prior_std, n_components, device, sgd_params, det_params, sto_params, dropout, num_epochs, milestones, lr_ratio_det, lr_ratio_sto, posterior_mean_init):
     if model_name == 'StoWideResNet28x10':
         model = StoWideResNet28x10(num_classes, n_components, prior_mean, prior_std)
         detp = []
@@ -112,7 +113,7 @@ def get_model(model_name, num_classes, prior_mean, prior_std, n_components, devi
             }], **sgd_params)
         scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, [lambda e: schedule(num_epochs, e, milestones, lr_ratio_det), lambda e: schedule(num_epochs, e, milestones, lr_ratio_sto)])
     elif model_name == 'StoVGG16':
-        model = StoVGG16(num_classes, n_components, prior_mean, prior_std)
+        model = StoVGG16(num_classes, n_components, prior_mean, prior_std, posterior_mean_init)
         detp = []
         stop = []
         for name, param in model.named_parameters():
@@ -129,6 +130,14 @@ def get_model(model_name, num_classes, prior_mean, prior_std, n_components, devi
                 **sto_params
             }], **sgd_params)
         scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, [lambda e: schedule(num_epochs, e, milestones, lr_ratio_det), lambda e: schedule(num_epochs, e, milestones, lr_ratio_sto)])
+    elif model_name == 'BayesianVGG16':
+        model = BayesianVGG16(num_classes, prior_mean, prior_std)
+        optimizer = torch.optim.SGD(
+            [{
+                'params': model.parameters(),
+                **det_params
+            }], **sgd_params)
+        scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, [lambda e: schedule(num_epochs, e, milestones, lr_ratio_det)])
     elif model_name == 'DetVGG16':
         model = DetVGG16(num_classes)
         optimizer = torch.optim.SGD(
@@ -195,7 +204,7 @@ def main(_run, model_name, num_train_sample, num_test_sample, device, validation
     count_parameters(model, logger)
     logger.info(str(model))
     checkpoint_dir = os.path.join(BASE_DIR, _run._id, 'checkpoint.pt')
-    if model_name.startswith('Sto'):
+    if model_name.startswith('Sto') or model_name.startswith('Bayesian'):
         model.train()
         best_nll = float('inf')
         for i in range(num_epochs):

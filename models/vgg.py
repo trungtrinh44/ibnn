@@ -10,9 +10,9 @@ import torch.distributions as D
 import torch.nn as nn
 import torch.nn.functional as F
 
-from .utils import StoLayer
+from .utils import StoLayer, BayesianConv2d, BayesianLinear, BayesianLayer
 
-__all__ = ["DetVGG16", "DetVGG16BN", "DetVGG19", "DetVGG19BN", "StoVGG16", "StoVGG16BN", "StoVGG19", "StoVGG19BN"]
+__all__ = ["DetVGG16", "DetVGG16BN", "DetVGG19", "DetVGG19BN", "StoVGG16", "StoVGG16BN", "StoVGG19", "StoVGG19BN", "BayesianVGG16", "BayesianVGG16BN", "BayesianVGG19", "BayesianVGG19BN"]
 
 
 def make_layers(cfg, batch_norm=False):
@@ -30,14 +30,14 @@ def make_layers(cfg, batch_norm=False):
             in_channels = v
     return nn.Sequential(*layers)
 
-def make_sto_layers(cfg, batch_norm=False, n_components=2, prior_mean=1.0, prior_std=1.0):
+def make_sto_layers(cfg, batch_norm=False, n_components=2, prior_mean=1.0, prior_std=1.0, posterior_mean_init=(1.0, 0.75)):
     layers = list()
     in_channels = 3
     for v in cfg:
         if v == "M":
             layers += [nn.MaxPool2d(kernel_size=2, stride=2)]
         else:
-            sl = StoLayer((in_channels, 1, 1), n_components, prior_mean, prior_std)
+            sl = StoLayer((in_channels, 1, 1), n_components, prior_mean, prior_std, posterior_mean_init)
             conv2d = nn.Conv2d(in_channels, v, kernel_size=3, padding=1)
             if batch_norm:
                 layers += [sl, conv2d, nn.BatchNorm2d(v), nn.ReLU(inplace=True)]
@@ -45,6 +45,21 @@ def make_sto_layers(cfg, batch_norm=False, n_components=2, prior_mean=1.0, prior
                 layers += [sl, conv2d, nn.ReLU(inplace=True)]
             in_channels = v
     return nn.ModuleList(layers)
+
+def make_bayes_layers(cfg, batch_norm=False, prior_mean=1.0, prior_std=1.0):
+    layers = list()
+    in_channels = 3
+    for v in cfg:
+        if v == "M":
+            layers += [nn.MaxPool2d(kernel_size=2, stride=2)]
+        else:
+            conv2d = BayesianConv2d(in_channels, v, kernel_size=3, padding=1, prior_mean=prior_mean, prior_std=prior_std)
+            if batch_norm:
+                layers += [conv2d, nn.BatchNorm2d(v), nn.ReLU(inplace=True)]
+            else:
+                layers += [conv2d, nn.ReLU(inplace=True)]
+            in_channels = v
+    return nn.Sequential(*layers)
 
 cfg = {
     16: [
@@ -120,18 +135,61 @@ class VGG(nn.Module):
         x = F.log_softmax(x, dim=-1)
         return x
 
+class BayesianVGG(nn.Module):
+    def __init__(self, num_classes=10, depth=16, prior_mean=0.0, prior_std=1.0, batch_norm=False):
+        super(BayesianVGG, self).__init__()
+        self.features = make_bayes_layers(cfg[depth], batch_norm, prior_mean, prior_std)
+        self.classifier = nn.Sequential(
+            BayesianLinear(512, 512, True, prior_mean, prior_std),
+            nn.ReLU(True),
+            BayesianLinear(512, 512, True, prior_mean, prior_std),
+            nn.ReLU(True),
+            BayesianLinear(512, num_classes, True, prior_mean, prior_std)
+        )
+
+        for m in self.modules():
+            if isinstance(m, BayesianConv2d):
+                n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
+                m.weight.data.normal_(0, math.sqrt(2.0 / n))
+                m.bias.data.zero_()
+
+    def kl(self):
+        return sum(m.kl() for m in self.modules() if isinstance(m, BayesianLayer))
+
+    def forward(self, x, n_sample):
+        outs = []
+        for _ in range(n_sample):
+            o = self.features(x)
+            o = o.view(o.size(0), -1)
+            o = self.classifier(o)
+            o = F.log_softmax(o, dim=-1)
+            outs.append(o.unsqueeze(1))
+        return torch.cat(outs, dim=1)
+    
+    def vb_loss(self, x, y, n_sample):
+        y = y.unsqueeze(1).expand(-1, n_sample)
+        logp = D.Categorical(logits=self.forward(x, n_sample)).log_prob(y).mean()
+        return -logp, self.kl()
+    
+    def nll(self, x, y, n_sample):
+        y = y.unsqueeze(1).expand(-1, n_sample)
+        prob = self.forward(x, n_sample)
+        logp = D.Categorical(logits=prob).log_prob(y).mean()
+        logp = torch.logsumexp(logp, 1) - torch.log(torch.tensor(n_sample, dtype=torch.float32, device=x.device))
+        return -logp.mean(), prob
+
 class StoVGG(nn.Module):
-    def __init__(self, num_classes=10, depth=16, n_components=2, prior_mean=1.0, prior_std=1.0, batch_norm=False):
+    def __init__(self, num_classes=10, depth=16, n_components=2, prior_mean=1.0, prior_std=1.0, posterior_mean_init=(1.0, 0.75), batch_norm=False):
         super(StoVGG, self).__init__()
-        self.features = make_sto_layers(cfg[depth], batch_norm, n_components, prior_mean, prior_std)
+        self.features = make_sto_layers(cfg[depth], batch_norm, n_components, prior_mean, prior_std, posterior_mean_init)
         self.classifier = nn.ModuleList([
-            StoLayer((512, ), n_components, prior_mean, prior_std),
+            StoLayer((512, ), n_components, prior_mean, prior_std, posterior_mean_init),
             nn.Linear(512, 512),
             nn.ReLU(True),
-            StoLayer((512, ), n_components, prior_mean, prior_std),
+            StoLayer((512, ), n_components, prior_mean, prior_std, posterior_mean_init),
             nn.Linear(512, 512),
             nn.ReLU(True),
-            StoLayer((512, ), n_components, prior_mean, prior_std),
+            StoLayer((512, ), n_components, prior_mean, prior_std, posterior_mean_init),
             nn.Linear(512, num_classes)
         ])
         self.n_components = n_components
@@ -200,20 +258,40 @@ class DetVGG19BN(VGG):
         super(DetVGG19BN, self).__init__(num_classes, 19, True)
 
 class StoVGG16(StoVGG):
-    def __init__(self, num_classes, n_components, prior_mean, prior_std):
-        super(StoVGG16, self).__init__(num_classes, 16, n_components, prior_mean, prior_std, False)
+    def __init__(self, num_classes, n_components, prior_mean, prior_std, posterior_mean_init):
+        super(StoVGG16, self).__init__(num_classes, 16, n_components, prior_mean, prior_std, posterior_mean_init, False)
 
 
 class StoVGG16BN(StoVGG):
-    def __init__(self, num_classes, n_components, prior_mean, prior_std):
-        super(StoVGG16BN, self).__init__(num_classes, 16, n_components, prior_mean, prior_std, True)
+    def __init__(self, num_classes, n_components, prior_mean, prior_std, posterior_mean_init):
+        super(StoVGG16BN, self).__init__(num_classes, 16, n_components, prior_mean, prior_std, posterior_mean_init, True)
 
 
 class StoVGG19(StoVGG):
-    def __init__(self, num_classes, n_components, prior_mean, prior_std):
-        super(StoVGG19, self).__init__(num_classes, 19, n_components, prior_mean, prior_std, False)
+    def __init__(self, num_classes, n_components, prior_mean, prior_std, posterior_mean_init):
+        super(StoVGG19, self).__init__(num_classes, 19, n_components, prior_mean, prior_std, posterior_mean_init, False)
 
 
 class StoVGG19BN(StoVGG):
-    def __init__(self, num_classes, n_components, prior_mean, prior_std):
-        super(StoVGG19BN, self).__init__(num_classes, 19, n_components, prior_mean, prior_std, True)
+    def __init__(self, num_classes, n_components, prior_mean, prior_std, posterior_mean_init):
+        super(StoVGG19BN, self).__init__(num_classes, 19, n_components, prior_mean, prior_std, posterior_mean_init, True)
+
+
+class BayesianVGG16(BayesianVGG):
+    def __init__(self, num_classes, prior_mean, prior_std):
+        super(BayesianVGG16, self).__init__(num_classes, 16, prior_mean, prior_std, False)
+
+
+class BayesianVGG16BN(BayesianVGG):
+    def __init__(self, num_classes, prior_mean, prior_std):
+        super(BayesianVGG16BN, self).__init__(num_classes, 16, prior_mean, prior_std, True)
+
+
+class BayesianVGG19(BayesianVGG):
+    def __init__(self, num_classes, prior_mean, prior_std):
+        super(BayesianVGG19, self).__init__(num_classes, 19, prior_mean, prior_std, False)
+
+
+class BayesianVGG19BN(BayesianVGG):
+    def __init__(self, num_classes, prior_mean, prior_std):
+        super(BayesianVGG19BN, self).__init__(num_classes, 19, prior_mean, prior_std, True)

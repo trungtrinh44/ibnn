@@ -171,7 +171,7 @@ class StoWideResNet(nn.Module):
         if indices is None:
             indices = torch.arange(x.size(0), dtype=torch.long, device=x.device) % self.n_components
         out = self.sl1(x, indices)
-        out = self.conv1(x)
+        out = self.conv1(out)
         for layer in self.layer1:
             out = layer(out, indices)
         for layer in self.layer2:

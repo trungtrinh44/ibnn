@@ -174,7 +174,7 @@ class BayesianVGG(nn.Module):
     def nll(self, x, y, n_sample):
         y = y.unsqueeze(1).expand(-1, n_sample)
         prob = self.forward(x, n_sample)
-        logp = D.Categorical(logits=prob).log_prob(y).mean()
+        logp = D.Categorical(logits=prob).log_prob(y)
         logp = torch.logsumexp(logp, 1) - torch.log(torch.tensor(n_sample, dtype=torch.float32, device=x.device))
         return -logp.mean(), prob
 

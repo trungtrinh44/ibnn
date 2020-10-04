@@ -204,7 +204,7 @@ def main(_run, model_name, num_train_sample, num_test_sample, device, validation
     count_parameters(model, logger)
     logger.info(str(model))
     checkpoint_dir = os.path.join(BASE_DIR, _run._id, 'checkpoint.pt')
-    if model_name.startswith('Sto') or model_name.startswith('Bayesian'):
+    if model_name.startswith('Sto'):
         model.train()
         best_nll = float('inf')
         for i in range(num_epochs):
@@ -223,6 +223,72 @@ def main(_run, model_name, num_train_sample, num_test_sample, device, validation
             if (i+1) % logging_freq == 0:
                 logger.info("VB Epoch %d: loglike: %.4f, kl: %.4f, kl weight: %.4f, lr1: %.4f, lr2: %.4f",
                             i, loglike.item(), kl.item(), klw, optimizer.param_groups[0]['lr'], optimizer.param_groups[1]['lr'])
+            if (i+1) % validate_freq == 0:
+                if validation:
+                    with torch.no_grad():
+                        nll, acc = test_nll(model, valid_loader)
+                    if best_nll >= nll:
+                        best_nll = nll
+                        torch.save(model.state_dict(), checkpoint_dir)
+                        logger.info('Save checkpoint')
+                    ex.log_scalar('nll.valid', nll, i)
+                    ex.log_scalar('acc.valid', acc, i)
+                    logger.info("VB Epoch %d: validation NLL %.4f, acc %.4f", i, nll, acc)
+                else:
+                    torch.save(model.state_dict(), checkpoint_dir)
+                    logger.info('Save checkpoint')
+                with torch.no_grad():
+                    nll, acc = test_nll(model, test_loader)
+                ex.log_scalar('nll.test', nll, i)
+                ex.log_scalar('acc.test', acc, i)
+                logger.info("VB Epoch %d: test NLL %.4f, acc %.4f", i, nll, acc)
+                model.train()
+        model.load_state_dict(torch.load(checkpoint_dir, map_location=device))
+        tnll = 0
+        acc = 0
+        nll_miss = 0
+        model.eval()
+        with torch.no_grad():
+            for bx, by in test_loader:
+                bx = bx.to(device)
+                by = by.to(device)
+                indices = torch.empty(bx.size(0)*num_test_sample, dtype=torch.long, device=bx.device)
+                prob = torch.cat([model.forward(bx, num_test_sample, indices=torch.full((bx.size(0)*num_test_sample,), idx, out=indices, device=bx.device, dtype=torch.long)) for idx in range(model.n_components)], dim=1)
+                y_target = by.unsqueeze(1).expand(-1, num_test_sample*model.n_components)
+                bnll = D.Categorical(logits=prob).log_prob(y_target)
+                bnll = torch.logsumexp(bnll, dim=1) - torch.log(torch.tensor(num_test_sample*model.n_components, dtype=torch.float32, device=bnll.device))
+                tnll -= bnll.sum().item()
+                vote = prob.exp().mean(dim=1)
+                pred = vote.argmax(dim=1)
+
+                y_miss = pred != by
+                if y_miss.sum().item() > 0:
+                    nll_miss -= bnll[y_miss].sum().item()
+                acc += (pred == by).sum().item()
+        nll_miss /= len(test_loader.dataset) - acc
+        tnll /= len(test_loader.dataset)
+        acc /= len(test_loader.dataset)
+        logger.info("Test data: acc %.4f, nll %.4f, nll miss %.4f",
+                    acc, tnll, nll_miss)
+    elif model_name.startswith('Bayesian'):
+        model.train()
+        best_nll = float('inf')
+        for i in range(num_epochs):
+            for bx, by in train_loader:
+                bx = bx.to(device)
+                by = by.to(device)
+                optimizer.zero_grad()
+                loglike, kl = model.vb_loss(bx, by, num_train_sample)
+                klw = get_kl_weight(epoch=i)
+                loss = loglike + klw*kl/(n_batch*bx.size(0))
+                loss.backward()
+                optimizer.step()
+                ex.log_scalar('loglike.train', loglike.item(), i)
+                ex.log_scalar('kl.train', kl.item(), i)
+            scheduler.step()
+            if (i+1) % logging_freq == 0:
+                logger.info("VB Epoch %d: loglike: %.4f, kl: %.4f, kl weight: %.4f, lr: %.4f",
+                            i, loglike.item(), kl.item(), klw, optimizer.param_groups[0]['lr'])
             if (i+1) % validate_freq == 0:
                 if validation:
                     with torch.no_grad():

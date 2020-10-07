@@ -86,6 +86,42 @@ def test_stochastic(model, dataloader, device, num_test_sample):
     y_prob_all = np.concatenate(y_prob_all, axis=0)
     return y_prob_all, y_prob, y_true, acc, tnll, nll_miss
 
+def test_bayesian(model, dataloader, device, num_test_sample):
+    tnll = 0
+    acc = [0, 0, 0]
+    nll_miss = 0
+    y_prob = []
+    y_true = []
+    y_prob_all = []
+    model.eval()
+    with torch.no_grad():
+        for bx, by in dataloader:
+            bx = bx.to(device)
+            by = by.to(device)
+            prob = model.forward(bx, num_test_sample)
+            y_target = by.unsqueeze(1).expand(-1, num_test_sample)
+            bnll = D.Categorical(logits=prob).log_prob(y_target)
+            bnll = torch.logsumexp(bnll, dim=1) - torch.log(torch.tensor(num_test_sample, dtype=torch.float32, device=bnll.device))
+            tnll -= bnll.sum().item()
+            vote = prob.exp().mean(dim=1)
+            top3 = torch.topk(vote, k=3, dim=1, largest=True, sorted=True)[1]
+            y_prob_all.append(prob.exp().cpu().numpy())
+            y_prob.append(vote.cpu().numpy())
+            y_true.append(by.cpu().numpy())
+            y_miss = top3[:, 0] != by
+            if y_miss.sum().item() > 0:
+                nll_miss -= bnll[y_miss].sum().item()
+            for k in range(3):
+                acc[k] += (top3[:, k] == by).sum().item()
+    nll_miss /= len(dataloader.dataset) - acc[0]
+    tnll /= len(dataloader.dataset)
+    for k in range(3):
+        acc[k] /= len(dataloader.dataset)
+    acc = np.cumsum(acc)
+    y_prob = np.concatenate(y_prob, axis=0)
+    y_true = np.concatenate(y_true, axis=0)
+    y_prob_all = np.concatenate(y_prob_all, axis=0)
+    return y_prob_all, y_prob, y_true, acc, tnll, nll_miss
 
 def test_model_deterministic(model, dataloader, device):
     tnll = 0
@@ -153,6 +189,8 @@ if __name__ == "__main__":
             y_prob, y_true, acc, tnll, nll_miss = test_model_deterministic(model, test_loader, device)
     elif config['model_name'].startswith('Sto'):
         y_prob_all, y_prob, y_true, acc, tnll, nll_miss = test_stochastic(model, test_loader, device, args.num_samples)
+    elif config['model_name'].startswith('Bayesian'):
+        y_prob_all, y_prob, y_true, acc, tnll, nll_miss = test_bayesian(model, test_loader, device, args.num_samples)
     pred_entropy = entropy(y_prob, axis=1)
     np.save(os.path.join(args.root, f'{"dropout_" if args.dropout else ""}pred_entropy.npy'), pred_entropy)
     ece = ECELoss(args.ece_bins)

@@ -11,7 +11,7 @@ from sacred import Experiment
 from sacred.observers import FileStorageObserver, RunObserver
 
 from datasets import get_data_loader, infinite_wrapper
-from models import DetWideResNet28x10, StoWideResNet28x10, StoVGG16, DetVGG16, BayesianVGG16, count_parameters
+from models import DetWideResNet28x10, StoWideResNet28x10, StoVGG16, DetVGG16, BayesianVGG16, BayesianWideResNet28x10 ,count_parameters
 
 torch.backends.cudnn.benchmark = True
 torch.backends.cudnn.deterministic = False
@@ -54,6 +54,9 @@ def my_config():
         'dampening': 0.0,
         'nesterov': True
     }
+    adam_params = {
+        'lr': 0.001, 'betas': (0.9, 0.999), 'eps': 1e-08, 'weight_decay': 0
+    }
     num_epochs = 300
     validation = True
     validation_fraction = 0.2
@@ -93,7 +96,7 @@ def schedule(num_epochs, epoch, milestones, lr_ratio):
     return factor
 
 @ex.capture
-def get_model(model_name, num_classes, prior_mean, prior_std, n_components, device, sgd_params, det_params, sto_params, dropout, num_epochs, milestones, lr_ratio_det, lr_ratio_sto, posterior_mean_init):
+def get_model(model_name, num_classes, prior_mean, prior_std, n_components, device, sgd_params, det_params, sto_params, dropout, num_epochs, milestones, lr_ratio_det, lr_ratio_sto, posterior_mean_init, adam_params):
     if model_name == 'StoWideResNet28x10':
         model = StoWideResNet28x10(num_classes, n_components, prior_mean, prior_std)
         detp = []
@@ -132,12 +135,19 @@ def get_model(model_name, num_classes, prior_mean, prior_std, n_components, devi
         scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, [lambda e: schedule(num_epochs, e, milestones, lr_ratio_det), lambda e: schedule(num_epochs, e, milestones, lr_ratio_sto)])
     elif model_name == 'BayesianVGG16':
         model = BayesianVGG16(num_classes, prior_mean, prior_std)
-        optimizer = torch.optim.SGD(
+        optimizer = torch.optim.Adam(
             [{
-                'params': model.parameters(),
-                **det_params
-            }], **sgd_params)
+                'params': model.parameters()
+            }], **adam_params)
         scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, [lambda e: schedule(num_epochs, e, milestones, lr_ratio_det)])
+    elif model_name == 'BayesianWideResNet28x10':
+        model = BayesianWideResNet28x10(num_classes, prior_mean, prior_std)
+        optimizer = torch.optim.Adam(
+            [{
+                'params': model.parameters()
+            }], **adam_params)
+        scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, [lambda e: schedule(num_epochs, e, milestones, lr_ratio_det)])
+    
     elif model_name == 'DetVGG16':
         model = DetVGG16(num_classes)
         optimizer = torch.optim.SGD(

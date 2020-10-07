@@ -10,7 +10,7 @@ import torch.distributions as D
 import torch.nn as nn
 import torch.nn.functional as F
 
-from .utils import StoLayer, BayesianConv2d, BayesianLinear, BayesianLayer
+from .utils import StoLayer, StoLinear, StoConv2d, BayesianConv2d, BayesianLinear, BayesianLayer
 
 __all__ = ["DetVGG16", "DetVGG16BN", "DetVGG19", "DetVGG19BN", "StoVGG16", "StoVGG16BN", "StoVGG19", "StoVGG19BN", "BayesianVGG16", "BayesianVGG16BN", "BayesianVGG19", "BayesianVGG19BN"]
 
@@ -37,12 +37,12 @@ def make_sto_layers(cfg, batch_norm=False, n_components=2, prior_mean=1.0, prior
         if v == "M":
             layers += [nn.MaxPool2d(kernel_size=2, stride=2)]
         else:
-            sl = StoLayer((in_channels, 1, 1), n_components, prior_mean, prior_std, posterior_mean_init)
-            conv2d = nn.Conv2d(in_channels, v, kernel_size=3, padding=1)
+            conv2d = StoConv2d(in_channels, v, kernel_size=3, padding=1, n_components=n_components,
+                               prior_mean=prior_mean, prior_std=prior_std, posterior_mean_init=posterior_mean_init)
             if batch_norm:
-                layers += [sl, conv2d, nn.BatchNorm2d(v), nn.ReLU(inplace=True)]
+                layers += [conv2d, nn.BatchNorm2d(v), nn.ReLU(inplace=True)]
             else:
-                layers += [sl, conv2d, nn.ReLU(inplace=True)]
+                layers += [conv2d, nn.ReLU(inplace=True)]
             in_channels = v
     return nn.ModuleList(layers)
 
@@ -183,14 +183,11 @@ class StoVGG(nn.Module):
         super(StoVGG, self).__init__()
         self.features = make_sto_layers(cfg[depth], batch_norm, n_components, prior_mean, prior_std, posterior_mean_init)
         self.classifier = nn.ModuleList([
-            StoLayer((512, ), n_components, prior_mean, prior_std, posterior_mean_init),
-            nn.Linear(512, 512),
+            StoLinear(512, 512, True, n_components, prior_mean, prior_std, posterior_mean_init),
             nn.ReLU(True),
-            StoLayer((512, ), n_components, prior_mean, prior_std, posterior_mean_init),
-            nn.Linear(512, 512),
+            StoLinear(512, 512, True, n_components, prior_mean, prior_std, posterior_mean_init),
             nn.ReLU(True),
-            StoLayer((512, ), n_components, prior_mean, prior_std, posterior_mean_init),
-            nn.Linear(512, num_classes)
+            StoLinear(512, num_classes, True, n_components, prior_mean, prior_std, posterior_mean_init)
         ])
         self.n_components = n_components
         self.sto_modules = [

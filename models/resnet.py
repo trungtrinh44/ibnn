@@ -11,7 +11,7 @@ import torch.nn.functional as F
 import torch.distributions as D
 import torch.nn.init as init
 
-from .utils import StoLayer, BayesianLayer, BayesianConv2d, BayesianLinear
+from .utils import StoLayer, StoConv2d, StoLinear, BayesianLayer, BayesianConv2d, BayesianLinear
 
 __all__ = ["DetWideResNet28x10", "StoWideResNet28x10", "BayesianWideResNet28x10"]
 
@@ -83,33 +83,27 @@ class StoWideBasic(nn.Module):
     def __init__(self, in_planes, planes, stride, n_components, prior_mean, prior_std):
         super(StoWideBasic, self).__init__()
         self.bn1 = nn.BatchNorm2d(in_planes)
-        self.sl1 = StoLayer((in_planes, 1, 1), n_components, prior_mean, prior_std)
-        self.conv1 = nn.Conv2d(in_planes, planes, kernel_size=3, padding=1, bias=True)
+        self.conv1 = StoConv2d(in_planes, planes, n_components=n_components, prior_mean=prior_mean, prior_std=prior_std, kernel_size=3, padding=1, bias=True)
         self.bn2 = nn.BatchNorm2d(planes)
-        self.sl2 = StoLayer((planes, 1, 1), n_components, prior_mean, prior_std)
-        self.conv2 = nn.Conv2d(
-            planes, planes, kernel_size=3, stride=stride, padding=1, bias=True
+        self.conv2 = StoConv2d(
+            planes, planes, kernel_size=3, stride=stride, padding=1, bias=True, n_components=n_components, prior_mean=prior_mean, prior_std=prior_std
         )
-        self.shortcut = nn.Sequential()
         if stride != 1 or in_planes != planes:
             self.has_shortcut = True
-            self.sl3 = StoLayer((in_planes, 1, 1), n_components, prior_mean, prior_std)
-            self.shortcut = nn.Sequential(
-                nn.Conv2d(in_planes, planes, kernel_size=1, stride=stride, bias=True)
-            )
+            self.shortcut = StoConv2d(in_planes, planes, n_components=n_components, prior_mean=prior_mean, prior_std=prior_std, kernel_size=1, stride=stride, bias=True)
         else:
             self.has_shortcut = False
 
     def forward(self, x, indices):
         out = self.conv1(
-            self.sl1(F.relu(self.bn1(x), inplace=True), indices)
+            F.relu(self.bn1(x), inplace=True), indices
         )
         out = self.conv2(
-            self.sl2(F.relu(self.bn2(out), inplace=True), indices)
+            F.relu(self.bn2(out), inplace=True), indices
         )
         if self.has_shortcut:
-            x = self.sl3(x, indices)
-        out += self.shortcut(x)
+            x = self.shortcut(x, indices)
+        out += x
 
         return out
     
@@ -165,14 +159,12 @@ class StoWideResNet(nn.Module):
 
         nstages = [16, 16 * k, 32 * k, 64 * k]
 
-        self.sl1 = StoLayer((3, 1, 1), n_components, prior_mean, prior_std)
-        self.conv1 = conv3x3(3, nstages[0])
+        self.conv1 = StoConv2d(3, nstages[0], kernel_size=3, stride=1, padding=1, bias=True, n_components=n_components, prior_mean=prior_mean, prior_std=prior_std)
         self.layer1 = self._wide_layer(StoWideBasic, nstages[1], n, n_components, prior_mean, prior_std, stride=1)
         self.layer2 = self._wide_layer(StoWideBasic, nstages[2], n, n_components, prior_mean, prior_std, stride=2)
         self.layer3 = self._wide_layer(StoWideBasic, nstages[3], n, n_components, prior_mean, prior_std, stride=2)
         self.bn1 = nn.BatchNorm2d(nstages[3], momentum=0.9)
-        self.sl2 = StoLayer((nstages[3], ), n_components, prior_mean, prior_std)
-        self.linear = nn.Linear(nstages[3], num_classes)
+        self.linear = StoLinear(nstages[3], num_classes, True, n_components=n_components, prior_mean=prior_mean, prior_std=prior_std)
         self.n_components = n_components
         self.sto_modules = [
             m for m in self.modules() if isinstance(m, StoLayer)
@@ -193,8 +185,7 @@ class StoWideResNet(nn.Module):
             x = torch.repeat_interleave(x, L, dim=0)
         if indices is None:
             indices = torch.arange(x.size(0), dtype=torch.long, device=x.device) % self.n_components
-        out = self.sl1(x, indices)
-        out = self.conv1(out)
+        out = self.conv1(x, indices)
         for layer in self.layer1:
             out = layer(out, indices)
         for layer in self.layer2:
@@ -204,7 +195,7 @@ class StoWideResNet(nn.Module):
         out = F.relu(self.bn1(out), inplace=True)
         out = F.avg_pool2d(out, 8)
         out = out.view(out.size(0), -1)
-        out = F.log_softmax(self.linear(self.sl2(out, indices)), -1)
+        out = F.log_softmax(self.linear(out, indices), -1)
         out = out.view(-1, L, out.size(1))
         return out
     

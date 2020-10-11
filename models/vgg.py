@@ -30,14 +30,14 @@ def make_layers(cfg, batch_norm=False):
             in_channels = v
     return nn.Sequential(*layers)
 
-def make_sto_layers(cfg, batch_norm=False, n_components=2, prior_mean=1.0, prior_std=1.0, posterior_mean_init=(1.0, 0.75)):
+def make_sto_layers(cfg, batch_norm=False, n_components=2, prior_mean=1.0, prior_std=1.0, posterior_mean_init=(1.0, 0.75), posterior_std_init=(0.05, 0.02)):
     layers = list()
     in_channels = 3
     for v in cfg:
         if v == "M":
             layers += [nn.MaxPool2d(kernel_size=2, stride=2)]
         else:
-            sl = StoLayer((in_channels, 1, 1), n_components, prior_mean, prior_std, posterior_mean_init)
+            sl = StoLayer((in_channels, 1, 1), n_components, prior_mean, prior_std, posterior_mean_init, posterior_std_init)
             conv2d = nn.Conv2d(in_channels, v, kernel_size=3, padding=1)
             if batch_norm:
                 layers += [sl, conv2d, nn.BatchNorm2d(v), nn.ReLU(inplace=True)]
@@ -179,17 +179,17 @@ class BayesianVGG(nn.Module):
         return -logp.mean(), prob
 
 class StoVGG(nn.Module):
-    def __init__(self, num_classes=10, depth=16, n_components=2, prior_mean=1.0, prior_std=1.0, posterior_mean_init=(1.0, 0.75), batch_norm=False):
+    def __init__(self, num_classes=10, depth=16, n_components=2, prior_mean=1.0, prior_std=1.0, posterior_mean_init=(1.0, 0.75), posterior_std_init=(0.05, 0.02), batch_norm=False):
         super(StoVGG, self).__init__()
-        self.features = make_sto_layers(cfg[depth], batch_norm, n_components, prior_mean, prior_std, posterior_mean_init)
+        self.features = make_sto_layers(cfg[depth], batch_norm, n_components, prior_mean, prior_std, posterior_mean_init, posterior_std_init)
         self.classifier = nn.ModuleList([
-            StoLayer((512, ), n_components, prior_mean, prior_std, posterior_mean_init),
+            StoLayer((512, ), n_components, prior_mean, prior_std, posterior_mean_init, posterior_std_init),
             nn.Linear(512, 512),
             nn.ReLU(True),
-            StoLayer((512, ), n_components, prior_mean, prior_std, posterior_mean_init),
+            StoLayer((512, ), n_components, prior_mean, prior_std, posterior_mean_init, posterior_std_init),
             nn.Linear(512, 512),
             nn.ReLU(True),
-            StoLayer((512, ), n_components, prior_mean, prior_std, posterior_mean_init),
+            StoLayer((512, ), n_components, prior_mean, prior_std, posterior_mean_init, posterior_std_init),
             nn.Linear(512, num_classes)
         ])
         self.n_components = n_components
@@ -258,23 +258,23 @@ class DetVGG19BN(VGG):
         super(DetVGG19BN, self).__init__(num_classes, 19, True)
 
 class StoVGG16(StoVGG):
-    def __init__(self, num_classes, n_components, prior_mean, prior_std, posterior_mean_init):
-        super(StoVGG16, self).__init__(num_classes, 16, n_components, prior_mean, prior_std, posterior_mean_init, False)
+    def __init__(self, num_classes, n_components, prior_mean, prior_std, posterior_mean_init, posterior_std_init):
+        super(StoVGG16, self).__init__(num_classes, 16, n_components, prior_mean, prior_std, posterior_mean_init, posterior_std_init, False)
 
 
 class StoVGG16BN(StoVGG):
-    def __init__(self, num_classes, n_components, prior_mean, prior_std, posterior_mean_init):
-        super(StoVGG16BN, self).__init__(num_classes, 16, n_components, prior_mean, prior_std, posterior_mean_init, True)
+    def __init__(self, num_classes, n_components, prior_mean, prior_std, posterior_mean_init, posterior_std_init):
+        super(StoVGG16BN, self).__init__(num_classes, 16, n_components, prior_mean, prior_std, posterior_mean_init, posterior_std_init, True)
 
 
 class StoVGG19(StoVGG):
-    def __init__(self, num_classes, n_components, prior_mean, prior_std, posterior_mean_init):
-        super(StoVGG19, self).__init__(num_classes, 19, n_components, prior_mean, prior_std, posterior_mean_init, False)
+    def __init__(self, num_classes, n_components, prior_mean, prior_std, posterior_mean_init, posterior_std_init):
+        super(StoVGG19, self).__init__(num_classes, 19, n_components, prior_mean, prior_std, posterior_mean_init, posterior_std_init, False)
 
 
 class StoVGG19BN(StoVGG):
-    def __init__(self, num_classes, n_components, prior_mean, prior_std, posterior_mean_init):
-        super(StoVGG19BN, self).__init__(num_classes, 19, n_components, prior_mean, prior_std, posterior_mean_init, True)
+    def __init__(self, num_classes, n_components, prior_mean, prior_std, posterior_mean_init, posterior_std_init):
+        super(StoVGG19BN, self).__init__(num_classes, 19, n_components, prior_mean, prior_std, posterior_mean_init, posterior_std_init, True)
 
 
 class BayesianVGG16(BayesianVGG):

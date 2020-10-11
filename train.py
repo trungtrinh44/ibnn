@@ -73,6 +73,7 @@ def my_config():
         device = 'cpu'
     milestones = (0.5, 0.9)
     posterior_mean_init = (1.0, 0.5)
+    posterior_std_init = (0.05, 0.02)
     dataset = 'cifar100'
     if dataset == 'cifar100' or dataset == 'vgg_cifar100':
         num_classes = 100
@@ -96,7 +97,7 @@ def schedule(num_epochs, epoch, milestones, lr_ratio):
     return factor
 
 @ex.capture
-def get_model(model_name, num_classes, prior_mean, prior_std, n_components, device, sgd_params, det_params, sto_params, dropout, num_epochs, milestones, lr_ratio_det, lr_ratio_sto, posterior_mean_init, adam_params):
+def get_model(model_name, num_classes, prior_mean, prior_std, n_components, device, sgd_params, det_params, sto_params, dropout, num_epochs, milestones, lr_ratio_det, lr_ratio_sto, posterior_mean_init, posterior_std_init, adam_params):
     if model_name == 'StoWideResNet28x10':
         model = StoWideResNet28x10(num_classes, n_components, prior_mean, prior_std)
         detp = []
@@ -116,7 +117,7 @@ def get_model(model_name, num_classes, prior_mean, prior_std, n_components, devi
             }], **sgd_params)
         scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, [lambda e: schedule(num_epochs, e, milestones, lr_ratio_det), lambda e: schedule(num_epochs, e, milestones, lr_ratio_sto)])
     elif model_name == 'StoVGG16':
-        model = StoVGG16(num_classes, n_components, prior_mean, prior_std, posterior_mean_init)
+        model = StoVGG16(num_classes, n_components, prior_mean, prior_std, posterior_mean_init, posterior_std_init)
         detp = []
         stop = []
         for name, param in model.named_parameters():

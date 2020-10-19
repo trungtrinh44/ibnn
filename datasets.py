@@ -1,14 +1,61 @@
+import sys
 import torch
 import torchvision
 from sklearn.model_selection import train_test_split
 import numpy as np
 from torch.utils.data import DataLoader, Subset
-
+import webdataset as wds
 
 def infinite_wrapper(loader):
     while True:
         for x in loader:
             yield x
+
+def identity(x):
+    return x
+
+def worker_urls(urls):
+    result = wds.worker_urls(urls)
+    print("worker_urls returning", len(result), "of", len(urls), "urls", file=sys.stderr)
+    return result
+
+def imagenet_loader(batch_size=128, shuffle_buffer=1000, num_workers=4, trainshards='./data/imagenet/shards/imagenet-train-{000000..001281}.tar', valshards='./data/imagenet/shards/imagenet-val-{000000..000049}.tar'):
+    trainsize = 1281167
+    normalize = torchvision.transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+    train_transform = torchvision.transforms.Compose(
+        [
+            torchvision.transforms.RandomResizedCrop(224),
+            torchvision.transforms.RandomHorizontalFlip(),
+            torchvision.transforms.ToTensor(),
+            normalize,
+        ]
+    )
+    val_transform = torchvision.transforms.Compose(
+        [torchvision.transforms.Resize(256), torchvision.transforms.CenterCrop(224), torchvision.transforms.ToTensor(), normalize]
+    )
+    num_batches = trainsize // batch_size
+    train_dataset = (
+        wds.Dataset(trainshards, length=num_batches, shard_selection=worker_urls)
+        .shuffle(shuffle_buffer)
+        .decode("pil")
+        .to_tuple("jpg;png;jpeg cls")
+        .map_tuple(train_transform, identity)
+        .batched(batch_size)
+    )
+    train_loader = torch.utils.data.DataLoader(
+        train_dataset, batch_size=None, shuffle=False, num_workers=num_workers,
+    )
+    val_dataset = (
+        wds.Dataset(valshards, length=50000//200, shard_selection=worker_urls)
+        .decode("pil")
+        .to_tuple("jpg;png;jpeg cls")
+        .map_tuple(val_transform, identity)
+        .batched(200)
+    )
+    val_loader = torch.utils.data.DataLoader(
+        val_dataset, batch_size=None, shuffle=False, num_workers=1,
+    )
+    return train_loader, val_loader
 
 
 def get_data_loader(dataset, batch_size=64, validation=False, validation_fraction=0.1, random_state=42, root_dir='data/', test_only=False, train_only=False, augment=True, degree=0):

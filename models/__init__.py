@@ -3,6 +3,7 @@ from .lenet import *
 from .utils import *
 from .resnet import *
 from .vgg import *
+from .pytorch_resnet import *
 
 def get_model_from_config(config):
     if config['model_name'] == 'StoWideResNet28x10':

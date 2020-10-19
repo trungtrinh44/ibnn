@@ -1,4 +1,5 @@
 import torch
+import torch.distributions as D
 import torch.nn as nn
 from .utils import load_state_dict_from_url, StoLayer
 
@@ -315,7 +316,7 @@ class ResNet(nn.Module):
         x = torch.flatten(x, 1)
         x = self.fc(x)
 
-        return x
+        return nn.functional.log_softmax(x, -1)
 
     def forward(self, x):
         return self._forward_impl(x)

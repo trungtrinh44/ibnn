@@ -6,6 +6,7 @@ from itertools import chain
 
 import numpy as np
 import torch
+import torch.nn as nn
 import torch.distributions as D
 import torchvision
 from sacred import Experiment
@@ -81,6 +82,24 @@ def get_kl_weight(epoch, kl_min, kl_max, last_iter):
     value = (kl_max-kl_min)/last_iter
     return min(kl_max, kl_min + epoch*value)
 
+def data_parallel(module, input, n_sample, device_ids=('cuda:0', 'cuda:1'), output_device=None):
+    if not device_ids:
+        return module(input)
+
+    if output_device is None:
+        output_device = device_ids[0]
+
+    replicas = nn.parallel.replicate(module, device_ids)
+    inputs = nn.parallel.scatter(input, device_ids)
+    replicas = replicas[:len(inputs)]
+    outputs = nn.parallel.parallel_apply(replicas, [(x, n_sample) for x in inputs])
+    return nn.parallel.gather(outputs, output_device)
+
+def vb_loss(model, x, y, n_sample):
+    y = y.unsqueeze(1).expand(-1, n_sample)
+    logp = D.Categorical(logits=data_parallel(model, x, n_sample)).log_prob(y).mean()
+    return -logp, model.kl()
+    
 def schedule(num_epochs, epoch, milestones, lr_ratio):
     t = epoch / num_epochs
     m1, m2 = milestones
@@ -146,13 +165,15 @@ def test_nll(model, loader, device, num_test_sample):
     with torch.no_grad():
         nll = 0
         acc = 0
-        for bx, by in loader:
+        for j, (bx, by) in enumerate(loader):
+            t0 = time.time()
             bx = bx.to(device, non_blocking=True)
             by = by.to(device, non_blocking=True)
             bnll, pred = model.nll(bx, by, num_test_sample)
             nll += bnll.item() * bx.size(0)
             acc += (pred.exp().mean(1).argmax(-1) == by).sum().item()
             total_size += by.size(0)
+            print(f"{j} Eval elapsed time: {time.time()-t0:.4f}s")
         acc /= total_size
         nll /= total_size
     return nll, acc
@@ -179,17 +200,20 @@ def main(_run, model_name, num_train_sample, num_test_sample, device, validation
         model.train()
         best_nll = float('inf')
         for i in range(num_epochs):
-            for bx, by in train_loader:
+            for j, (bx, by) in enumerate(train_loader):
+                t0 = time.time()
                 bx = bx.to(device, non_blocking=True)
                 by = by.to(device, non_blocking=True)
                 optimizer.zero_grad()
-                loglike, kl = model.vb_loss(bx, by, num_train_sample)
+                loglike, kl = vb_loss(model, bx, by, num_train_sample)
                 klw = get_kl_weight(epoch=i)
                 loss = loglike + klw*kl/(n_batch*bx.size(0))
                 loss.backward()
                 optimizer.step()
                 ex.log_scalar('loglike.train', loglike.item(), i)
                 ex.log_scalar('kl.train', kl.item(), i)
+                print(f"{j} Elapsed time: {time.time()-t0:.4f}s, kl: {kl.item():.2f}, loglike: {loglike.item():.4f}")
+#                 break
             scheduler.step()
             if (i+1) % logging_freq == 0:
                 logger.info("VB Epoch %d: loglike: %.4f, kl: %.4f, kl weight: %.4f, lr1: %.4f, lr2: %.4f",
@@ -256,8 +280,8 @@ def main(_run, model_name, num_train_sample, num_test_sample, device, validation
                 loss.backward()
                 optimizer.step()
                 ex.log_scalar("nll.train", loss.item(), i)
-            scheduler.step()
-            if (i+1) % logging_freq == 0:
+#            scheduler.step()
+#            if (i+1) % logging_freq == 0:
                 logger.info("Epoch %d: train %.4f, lr %.4f", i, loss.item(), optimizer.param_groups[0]['lr'])
             if (i+1) % validate_freq == 0:
                 model.eval()

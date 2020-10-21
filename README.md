@@ -61,3 +61,11 @@ python train.py with model_name=StoVGG16 validation=False \
     'det_params.lr=0.05' 'sto_params.lr'=1.6 'sto_params.weight_decay=0.0' 'sto_params.momentum=0.9' 'sto_params.nesterov=True' 'num_train_sample'=2 \
     'sgd_params.nesterov'=True 'milestones=(0.50,0.90)' name=<UNIQUE_NAME_FOR_THE_EXPERIMENT> seed=<RANDOM_SEED>
 ```
+For more information on each training option, please read the comments in the `train.py` file.
+Each experiment will be stored in a subfolder of the `experiments` folder.
+
+To test the model
+```bash
+python test.py <EXPERIMENT_FOLDER> -n 5 -b 128
+```
+where `-n` option defines the number of samples to use in each component, and `-b` option defines the batch size.

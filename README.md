@@ -68,4 +68,4 @@ To test the model
 ```bash
 python test.py <EXPERIMENT_FOLDER> -n 5 -b 128
 ```
-where `-n` option defines the number of samples to use in each component, and `-b` option defines the batch size.
+where `-n` option defines the number of samples to use in each component, and `-b` option defines the batch size. The test result will be in the `<EXPERIMENT_FOLDER>/<DATASET>/result.json` file.

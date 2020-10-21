@@ -1,2 +1,9 @@
 .vscode/settings.json
 __pycache__
+data
+*.out
+*.slrm
+runs
+sample_noise_runs
+vb_runs
+iwvb_runs

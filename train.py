@@ -20,7 +20,7 @@ class SetID(RunObserver):
     priority = 50  # very high priority
 
     def started_event(self, ex_info, command, host_info, start_time, config, meta_info, _id):
-        return f"{config['model_name']}_{config['seed']}_{config['name']}"
+        return f"{config['model_name']}_{config['seed']}_{config['dataset']}_{config['name']}"
 
 EXPERIMENT = 'experiments'
 BASE_DIR = EXPERIMENT

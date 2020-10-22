@@ -154,6 +154,8 @@ class BayesianConv2d(nn.Conv2d, BayesianLayer):
 
 class ECELoss(nn.Module):
     """
+    Ported from https://github.com/gpleiss/temperature_scaling/blob/master/temperature_scaling.py
+
     Calculates the Expected Calibration Error of a model.
     (This isn't necessary for temperature scaling, just a cool metric).
     The input to this loss is the logits of a model, NOT the softmax scores.

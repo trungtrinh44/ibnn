@@ -103,7 +103,7 @@ def get_model(model_name, num_classes, prior_mean, prior_std, n_components, devi
         detp = []
         stop = []
         for name, param in model.named_parameters():
-            if 'posterior_mean' in name or 'posterior_std' in name or 'prior_mean' in name or 'prior_std' in name:
+            if 'posterior' in name or 'prior' in name:
                 stop.append(param)
             else:
                 detp.append(param)
@@ -121,7 +121,7 @@ def get_model(model_name, num_classes, prior_mean, prior_std, n_components, devi
         detp = []
         stop = []
         for name, param in model.named_parameters():
-            if 'posterior_mean' in name or 'posterior_std' in name or 'prior_mean' in name or 'prior_std' in name:
+            if 'posterior' in name or 'prior' in name:
                 stop.append(param)
             else:
                 detp.append(param)

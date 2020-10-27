@@ -1,6 +1,10 @@
 # iBNN
 
-Official Pytorch implementation of the implicit BNN model.
+Official Pytorch implementation of the implicit BNN model from the paper
+
+[Scalable Bayesian neural networks by layer-wise input augmentation](https://arxiv.org/abs/2010.13498)
+
+by Trung Trinh, Samuel Kaski, Markus Heinonen
 
 ## Installation
 

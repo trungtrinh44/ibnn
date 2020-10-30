@@ -191,6 +191,10 @@ class StoWideResNet(nn.Module):
         out = out.view(-1, L, out.size(1))
         return out
     
+    def update_weight(self):
+        for m in self.sto_modules:
+            m.update_weight()
+    
     def kl(self):
         return sum(m.kl() for m in self.sto_modules)
 

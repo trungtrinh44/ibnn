@@ -219,6 +219,10 @@ class StoVGG(nn.Module):
         x = x.view(-1, L, x.size(1))
         return x
     
+    def update_weight(self):
+        for m in self.sto_modules:
+            m.update_weight()
+    
     def kl(self):
         return sum(m.kl() for m in self.sto_modules)
 

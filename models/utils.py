@@ -42,6 +42,16 @@ class StoLayer(object):
         self.posterior_std_init = posterior_std_init
         self.__aux_dim = in_features[1:]
     
+    def update_weight(self):
+        mean = self.posterior_U_mean.mean(dim=0, keepdim=True).data
+        self.weight.data *= mean
+        self.posterior_U_mean.data /= mean
+        if self.bias is not None:
+            mean = self.posterior_B_mean.mean(dim=0).squeeze().data
+            self.bias.data *= mean
+            self.posterior_B_mean.data /= mean
+
+
     def get_mult_noise(self, input, indices):
         mean = self.posterior_U_mean
         std = F.softplus(self.posterior_U_std)

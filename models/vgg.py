@@ -229,7 +229,7 @@ class StoVGG(nn.Module):
     def vb_loss(self, x, y, n_sample):
         y = y.unsqueeze(1).expand(-1, n_sample)
         logp = D.Categorical(logits=self.forward(x, n_sample)).log_prob(y).mean()
-        return -logp, self.kl()
+        return -logp
     
     def nll(self, x, y, n_sample):
         indices = torch.empty(x.size(0)*n_sample, dtype=torch.long, device=x.device)

@@ -221,20 +221,22 @@ def main(_run, model_name, num_train_sample, num_test_sample, device, validation
     checkpoint_dir = os.path.join(BASE_DIR, _run._id, 'checkpoint.pt')
     if model_name.startswith('Sto'):
         model.train()
+        model.update_weight()
         best_nll = float('inf')
         for i in range(num_epochs):
             for bx, by in train_loader:
                 bx = bx.to(device)
                 by = by.to(device)
                 optimizer.zero_grad()
-                loglike, kl = model.vb_loss(bx, by, num_train_sample)
-                klw = get_kl_weight(epoch=i)
-                loss = loglike + klw*kl/(n_batch*bx.size(0))
+                loglike = model.vb_loss(bx, by, num_train_sample)
+                # klw = get_kl_weight(epoch=i)
+                loss = loglike #+ klw*kl/(n_batch*bx.size(0))
                 loss.backward()
                 optimizer.step()
                 ex.log_scalar('loglike.train', loglike.item(), i)
-                ex.log_scalar('kl.train', kl.item(), i)
+                # ex.log_scalar('kl.train', kl.item(), i)
             scheduler.step()
+            model.update_weight()
             if (i+1) % logging_freq == 0:
                 logger.info("VB Epoch %d: loglike: %.4f, kl: %.4f, kl weight: %.4f, lr1: %.4f, lr2: %.4f",
                             i, loglike.item(), kl.item(), klw, optimizer.param_groups[0]['lr'], optimizer.param_groups[1]['lr'])

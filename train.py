@@ -238,8 +238,8 @@ def main(_run, model_name, num_train_sample, num_test_sample, device, validation
             scheduler.step()
             model.update_weight()
             if (i+1) % logging_freq == 0:
-                logger.info("VB Epoch %d: loglike: %.4f, kl: %.4f, kl weight: %.4f, lr1: %.4f, lr2: %.4f",
-                            i, loglike.item(), kl.item(), klw, optimizer.param_groups[0]['lr'], optimizer.param_groups[1]['lr'])
+                logger.info("VB Epoch %d: loglike: %.4f, lr1: %.4f, lr2: %.4f",
+                            i, loglike.item(), optimizer.param_groups[0]['lr'], optimizer.param_groups[1]['lr'])
             if (i+1) % validate_freq == 0:
                 if validation:
                     with torch.no_grad():

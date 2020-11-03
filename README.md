@@ -262,6 +262,7 @@ for name, param in model.named_parameters():
 # We use larger learning rate lr2 for the variational parameters
 # A rule of thumbs is that lr2 equals a base value times the number of components.
 # For example, below we choose a base value of 0.2 and multiply it with 8.
+# Use a suitable large lr for variational params so they can quickly adapt to the change of deterministic weights.
 optimizer = torch.optim.SGD(
 [{
     'params': det_p,
@@ -279,3 +280,4 @@ scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer,
 
 During training, the KL weight increases from 0 to 1 for some epochs. In my experiment, for a run of 300 epochs, I perform KL weight anneal for 200 epochs, but this value can change depend on your application.
 
+It is important to initilize the means of the posterior components using `Normal(1, sigma)` with a suitable `sigma` value (0.75 or 0.5 works fine) and choose a suitable standard deviation for the prior `Normal(1, s)`, for small network `s = 0.3` is a good value.

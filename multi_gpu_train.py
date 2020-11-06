@@ -68,6 +68,7 @@ def main():
     args.total_batch_size = args.batch_size * args.world_size
     os.environ['MASTER_ADDR'] = 'localhost'
     os.environ['MASTER_PORT'] = '8888'
+    os.makedirs(args.root, exist_ok=True)
     mp.spawn(train, nprocs=args.gpus, args=(args,))
 
 def get_kl_weight(epoch, args):

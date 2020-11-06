@@ -20,7 +20,7 @@ class SetID(RunObserver):
     priority = 50  # very high priority
 
     def started_event(self, ex_info, command, host_info, start_time, config, meta_info, _id):
-        return f"{config['model_name']}_{config['seed']}_{config['name']}"
+        return f"{config['model_name']}_{config['seed']}_{config['dataset']}_{config['name']}"
 
 EXPERIMENT = 'experiments'
 BASE_DIR = EXPERIMENT
@@ -31,50 +31,54 @@ ex.observers.append(FileStorageObserver(BASE_DIR))
 
 @ex.config
 def my_config():
-    seed = 1
-    name = 'name'
-    model_name = 'StoWideResNet28x10'
+    seed = 1 # Random seed
+    name = 'name' # Unique name for the folder of the experiment
+    model_name = 'StoWideResNet28x10' # Choose with model to train
+    # the KL weight will increase from <kl_min> to <kl_max> for <last_iter> iterations.
     kl_weight = {
         'kl_min': 0.0,
         'kl_max': 1.0,
         'last_iter': 200
     }
-    batch_size = 128
-    prior_mean = 1.0
-    prior_std = 0.5
-    n_components = 2
+    batch_size = 128 # Batch size
+    prior_mean = 1.0 # Mean of the Gaussian prior
+    prior_std = 0.5 # Std of the Gaussian prior
+    n_components = 2 # Number of components in the posterior
+    # Options of the deterministic weights for the SGD
     det_params = {
         'lr': 0.1, 'weight_decay': 5e-4
     }
+    # Options of the variational parameters for the SGD
     sto_params = {
         'lr': 0.1, 'weight_decay': 0.0, 'momentum': 0.0, 'nesterov': False
     }
+    # Universal options for the SGD
     sgd_params = {
         'momentum': 0.9, 
         'dampening': 0.0,
         'nesterov': True
     }
+    # Options for the Adam optimizer used by the BNN-VI model.
     adam_params = {
         'lr': 0.001, 'betas': (0.9, 0.999), 'eps': 1e-08, 'weight_decay': 0
     }
-    num_epochs = 300
-    validation = True
-    validation_fraction = 0.2
-    validate_freq = 5  # calculate validation frequency
-    num_train_sample = 1
-    num_test_sample = 1
-    logging_freq = 1
-    posterior_type = 'mixture_gaussian'
+    num_epochs = 300 # Number of training epoch
+    validation = True # Whether of not to use a validation set
+    validation_fraction = 0.1 # Size of the validation set
+    validate_freq = 5  # Frequency of testing on the validation set
+    num_train_sample = 1 # Number of samples drawn from each component during training
+    num_test_sample = 1 # Number of samples drawn from each component during testing
+    logging_freq = 1 # Logging frequency
     device = 'cuda'
-    dropout = 0.3 # for mc-dropout model
-    lr_ratio_det = 0.01
-    lr_ratio_sto = 1/3
+    dropout = 0.3 # for MC-dropout model
+    lr_ratio_det = 0.01 # For annealing the learning rate of the deterministic weights
+    lr_ratio_sto = 1/3 # For annealing the learning rate of the variational parameters
+    milestones = (0.5, 0.9) # First value chooses which epoch to start decreasing the learning rate and the second value chooses which epoch to stop. See the schedule function for more information.
     if not torch.cuda.is_available():
         device = 'cpu'
-    milestones = (0.5, 0.9)
-    posterior_mean_init = (1.0, 0.5)
-    posterior_std_init = (0.05, 0.02)
-    dataset = 'cifar100'
+    posterior_mean_init = (1.0, 0.5) # Mean and std to init the component means in the posterior
+    posterior_std_init = (0.05, 0.02) # Mean and std to init the component stds in the posterior
+    dataset = 'cifar100' # Dataset of the experiment
     if dataset == 'cifar100' or dataset == 'vgg_cifar100':
         num_classes = 100
     elif dataset == 'cifar10' or dataset == 'vgg_cifar10':

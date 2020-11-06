@@ -20,70 +20,6 @@ def count_parameters(model, logger):
     return total_params
 
 
-def swish(x):
-    return x*torch.sigmoid(x)
-
-
-class Swish(nn.Module):
-    def forward(self, x):
-        return swish(x)
-
-
-def get_activation(name: str):
-    name = name.lower()
-    if name == 'relu':
-        return nn.ReLU(inplace=False)
-    if name == 'softplus':
-        return nn.Softplus()
-    if name == 'swish':
-        return Swish()
-    if name == 'selu':
-        return nn.SELU()
-    if name == 'gelu':
-        return nn.GELU()
-
-
-def get_dimension_size_conv(input_size, padding, stride, kernel):
-    return (input_size+2*padding-kernel)//stride + 1
-
-
-class Linear(nn.Linear):
-    def __init__(self, in_features: int, out_features: int, bias: bool = True, init_method='normal', activation='relu'):
-        super(Linear, self).__init__(in_features, out_features, bias)
-        if init_method == 'orthogonal':
-            nn.init.orthogonal_(
-                self.weight, nn.init.calculate_gain(activation))
-            if bias:
-                nn.init.constant_(self.bias, 0.0)
-        elif init_method == 'normal':
-            nn.init.normal_(self.weight, mean=0.0, std=0.1)
-            if bias:
-                nn.init.constant_(self.bias, 0.1)
-        elif init_method == 'wrn':
-            nn.init.kaiming_normal_(self.weight)
-            if bias:
-                nn.init.constant_(self.bias, 0.0)
-
-
-class Conv2d(nn.Conv2d):
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1,
-                 padding=0, dilation=1, groups=1, bias=True, padding_mode='zeros', init_method='normal', activation='relu'):
-        super(Conv2d, self).__init__(in_channels, out_channels, kernel_size, stride=stride,
-                                     padding=padding, dilation=dilation, groups=groups, bias=bias, padding_mode=padding_mode)
-        if init_method == 'orthogonal':
-            nn.init.orthogonal_(
-                self.weight, nn.init.calculate_gain(activation))
-            if bias:
-                nn.init.constant_(self.bias, 0.0)
-        elif init_method == 'normal':
-            nn.init.normal_(self.weight, mean=0.0, std=0.01)
-            if bias:
-                nn.init.constant_(self.bias, 0.01)
-        # elif init_method == 'wrn':
-        #     nn.init.kaiming_normal_(self.weight)
-        #     if bias:
-        #         nn.init.constant_(self.bias, 0.0)
-
 
 class StoLayer(nn.Module):
     def __init__(self, in_features, n_components, prior_mean, prior_std, posterior_mean_init=(1.0, 0.5), posterior_std_init=(0.05, 0.02)):
@@ -102,8 +38,8 @@ class StoLayer(nn.Module):
         self.posterior_std_init = posterior_std_init
     
     def get_input_sample(self, input, indices):
-        mean = self.posterior_mean #.expand((-1, -1, *input.shape[2:]))
-        std = F.softplus(self.posterior_std) #.expand((-1, -1, *input.shape[2:]))
+        mean = self.posterior_mean
+        std = F.softplus(self.posterior_std)
         components = D.Normal(mean[indices], std[indices])
         return components.rsample()
 
@@ -114,7 +50,6 @@ class StoLayer(nn.Module):
     def kl(self):
         mean = self.posterior_mean.mean(dim=0)
         std = F.softplus(self.posterior_std).pow(2.0).sum(0).pow(0.5) / self.posterior_std.size(0)
-        # std = ((std.pow(2.0) + self.posterior_mean.pow(2.0)).mean(dim=0) - mean.pow(2.0)).pow(0.5)
         components = D.Normal(mean, std)
         prior = D.Normal(self.prior_mean, self.prior_std)
         return D.kl_divergence(components, prior).sum()
@@ -219,6 +154,8 @@ class BayesianConv2d(nn.Conv2d, BayesianLayer):
 
 class ECELoss(nn.Module):
     """
+    Ported from https://github.com/gpleiss/temperature_scaling/blob/master/temperature_scaling.py
+
     Calculates the Expected Calibration Error of a model.
     (This isn't necessary for temperature scaling, just a cool metric).
     The input to this loss is the logits of a model, NOT the softmax scores.
@@ -258,53 +195,3 @@ class ECELoss(nn.Module):
                                  accuracy_in_bin) * prop_in_bin
 
         return ece
-
-def update_bn(loader, model, device=None):
-    r"""Updates BatchNorm running_mean, running_var buffers in the model.
-    It performs one pass over data in `loader` to estimate the activation
-    statistics for BatchNorm layers in the model.
-    Arguments:
-        loader (torch.utils.data.DataLoader): dataset loader to compute the
-            activation statistics on. Each data batch should be either a
-            tensor, or a list/tuple whose first element is a tensor
-            containing data.
-        model (torch.nn.Module): model for which we seek to update BatchNorm
-            statistics.
-        device (torch.device, optional): If set, data will be transferred to
-            :attr:`device` before being passed into :attr:`model`.
-    Example:
-        >>> loader, model = ...
-        >>> torch.optim.swa_utils.update_bn(loader, model)
-    .. note::
-        The `update_bn` utility assumes that each data batch in :attr:`loader`
-        is either a tensor or a list or tuple of tensors; in the latter case it
-        is assumed that :meth:`model.forward()` should be called on the first
-        element of the list or tuple corresponding to the data batch.
-    """
-    momenta = {}
-    for module in model.modules():
-        if isinstance(module, torch.nn.modules.batchnorm._BatchNorm):
-            module.running_mean = torch.zeros_like(module.running_mean)
-            module.running_var = torch.ones_like(module.running_var)
-            momenta[module] = module.momentum
-
-    if not momenta:
-        return
-
-    was_training = model.training
-    model.train()
-    for module in momenta.keys():
-        module.momentum = None
-        module.num_batches_tracked *= 0
-
-    for input in loader:
-        if isinstance(input, (list, tuple)):
-            input = input[0]
-        if device is not None:
-            input = input.to(device)
-
-        model(input)
-
-    for bn_module in momenta.keys():
-        bn_module.momentum = momenta[bn_module]
-    model.train(was_training)

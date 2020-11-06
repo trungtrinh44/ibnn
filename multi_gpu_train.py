@@ -159,7 +159,7 @@ def get_logger(args, logger):
     return logger
 
 
-def test_nll(model, loader, args.num_sample['test']):
+def test_nll(model, loader, num_sample):
     model.eval()
     with torch.no_grad():
         nll = 0
@@ -167,7 +167,7 @@ def test_nll(model, loader, args.num_sample['test']):
         for bx, by in loader:
             bx = bx.cuda(non_blocking=True)
             by = by.cuda(non_blocking=True)
-            bnll, pred = parallel_nll(model, bx, by, args.num_sample['test'])
+            bnll, pred = parallel_nll(model, bx, by, num_sample)
             nll += bnll.item() * bx.size(0)
             acc += (pred.exp().mean(1).argmax(-1) == by).sum().item()
         acc /= len(loader.dataset)

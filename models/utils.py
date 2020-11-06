@@ -6,6 +6,7 @@ import torch.distributions as D
 import torch.nn as nn
 import torch.nn.functional as F
 from prettytable import PrettyTable
+from torch.nn.modules.utils import _pair
 
 
 def count_parameters(model, logger):
@@ -19,43 +20,104 @@ def count_parameters(model, logger):
     logger.info(f"Total Trainable Params: {total_params}")
     return total_params
 
-
-
-class StoLayer(nn.Module):
-    def __init__(self, in_features, n_components, prior_mean, prior_std, posterior_mean_init=(1.0, 0.5), posterior_std_init=(0.05, 0.02)):
-        super(StoLayer, self).__init__()
-        posterior_mean = torch.ones((n_components, *in_features))
-        posterior_std = torch.ones((n_components, *in_features))
+class StoLayer(object):
+    def sto_init(self, in_features, n_components, prior_mean, prior_std, posterior_mean_init=(1.0, 0.5), posterior_std_init=(0.05, 0.02)):
         # [1, In, 1, 1]
-        self.posterior_mean = nn.Parameter(posterior_mean, requires_grad=True)
-        self.posterior_std = nn.Parameter(posterior_std, requires_grad=True)
-        nn.init.normal_(self.posterior_std, posterior_std_init[0], posterior_std_init[1])
-        nn.init.normal_(self.posterior_mean, posterior_mean_init[0], posterior_mean_init[1])
-        self.posterior_std.data.abs_().expm1_().log_()
+        self.posterior_U_mean = nn.Parameter(torch.ones((n_components, *in_features)), requires_grad=True)
+        self.posterior_U_std = nn.Parameter(torch.ones((n_components, *in_features)), requires_grad=True)
+        nn.init.normal_(self.posterior_U_std, posterior_std_init[0], posterior_std_init[1])
+        nn.init.normal_(self.posterior_U_mean, posterior_mean_init[0], posterior_mean_init[1])
+        self.posterior_U_std.data.abs_().expm1_().log_()
+
+        if self.bias is not None:
+            self.posterior_B_mean = nn.Parameter(torch.ones((n_components, 1, *in_features[1:])), requires_grad=True)
+            self.posterior_B_std = nn.Parameter(torch.ones((n_components, 1, *in_features[1:])), requires_grad=True)
+            nn.init.normal_(self.posterior_B_std, posterior_std_init[0], posterior_std_init[1])
+            nn.init.normal_(self.posterior_B_mean, posterior_mean_init[0], posterior_mean_init[1])
+            self.posterior_B_std.data.abs_().expm1_().log_()
+
         self.prior_mean = nn.Parameter(torch.tensor(prior_mean), requires_grad=False)
         self.prior_std = nn.Parameter(torch.tensor(prior_std), requires_grad=False)
         self.posterior_mean_init = posterior_mean_init
         self.posterior_std_init = posterior_std_init
+        self.__aux_dim = in_features[1:]
     
-    def get_input_sample(self, input, indices):
-        mean = self.posterior_mean
-        std = F.softplus(self.posterior_std)
+    def get_mult_noise(self, input, indices):
+        mean = self.posterior_U_mean
+        std = F.softplus(self.posterior_U_std)
+        components = D.Normal(mean[indices], std[indices])
+        return components.rsample()
+    
+    def get_add_noise(self, input, indices):
+        mean = self.posterior_B_mean
+        std = F.softplus(self.posterior_B_std)
         components = D.Normal(mean[indices], std[indices])
         return components.rsample()
 
-    def forward(self, x, indices):
-        x = x * self.get_input_sample(x, indices)
+    def mult_noise(self, x, indices):
+        x = x * self.get_mult_noise(x, indices)
+        return x
+
+    def add_bias(self, x, indices):
+        x = x + self.bias.view(-1, *self.__aux_dim) * self.get_add_noise(x, indices)
         return x
     
     def kl(self):
-        mean = self.posterior_mean.mean(dim=0)
-        std = F.softplus(self.posterior_std).pow(2.0).sum(0).pow(0.5) / self.posterior_std.size(0)
+        return self._kl(self.posterior_U_mean, self.posterior_U_std) + (0 if self.bias is None else self._kl(self.posterior_B_mean, self.posterior_B_std))
+    
+    def _kl(self, pos_mean, pos_std):
+        mean = pos_mean.mean(dim=0)
+        std = F.softplus(pos_std).pow(2.0).sum(0).pow(0.5) / pos_std.size(0)
         components = D.Normal(mean, std)
         prior = D.Normal(self.prior_mean, self.prior_std)
         return D.kl_divergence(components, prior).sum()
     
+    def sto_extra_repr(self):
+        return f"n_components={self.posterior_U_mean.size(0)}, prior_mean={self.prior_mean.data.item()}, prior_std={self.prior_std.data.item()}, posterior_mean_init={self.posterior_mean_init}, posterior_std_init={self.posterior_std_init}"
+
+class StoConv2d(nn.Conv2d, StoLayer):
+    def __init__(
+        self, in_channels, out_channels, kernel_size, stride = 1, padding = 0, dilation = 1, groups = 1, bias = True, padding_mode = 'zeros',
+        n_components=8, prior_mean=1.0, prior_std=0.1, posterior_mean_init=(1.0, 0.5), posterior_std_init=(0.05, 0.02)
+    ):
+        super(StoConv2d, self).__init__(in_channels, out_channels, kernel_size, stride, padding, dilation, groups, bias, padding_mode)
+        self.sto_init((in_channels, 1, 1), n_components, prior_mean, prior_std, posterior_mean_init, posterior_std_init)
+
+    def _conv_forward(self, x):
+        if self.padding_mode != 'zeros':
+            return F.conv2d(F.pad(x, self._reversed_padding_repeated_twice, mode=self.padding_mode),
+                            self.weight, None, self.stride,
+                            _pair(0), self.dilation, self.groups)
+        return F.conv2d(x, self.weight, None, self.stride,
+                        self.padding, self.dilation, self.groups)
+    
+    def forward(self, x, indices):
+        x = self.mult_noise(x, indices)
+        x = self._conv_forward(x)
+        if self.bias is not None:
+            x = self.add_bias(x, indices)
+        return x
+
     def extra_repr(self):
-        return f"n_components={self.posterior_mean.size(0)}, prior_mean={self.prior_mean.data.item()}, prior_std={self.prior_std.data.item()}, posterior_mean={self.posterior_mean_init}, posterior_std={self.posterior_std_init}"
+        return f"{super(StoConv2d, self).extra_repr()}, {self.sto_extra_repr()}"
+
+class StoLinear(nn.Linear, StoLayer):
+    def __init__(
+        self, in_features: int, out_features: int, bias: bool = True,
+        n_components=8, prior_mean=1.0, prior_std=0.1, posterior_mean_init=(1.0, 0.5), posterior_std_init=(0.05, 0.02)
+    ):
+        super(StoLinear, self).__init__(in_features, out_features, bias)
+        self.sto_init((in_features, ), n_components, prior_mean, prior_std, posterior_mean_init, posterior_std_init)
+
+    def forward(self, x, indices):
+        x = self.mult_noise(x, indices)
+        x = F.linear(x, self.weight, None)
+        if self.bias is not None:
+            x = self.add_bias(x, indices)
+        return x
+
+    def extra_repr(self):
+        return f"{super(StoLinear, self).extra_repr()}, {self.sto_extra_repr()}"
 
 class BayesianLayer(object):
     pass
@@ -100,17 +162,17 @@ class BayesianLinear(nn.Linear, BayesianLayer):
 class BayesianConv2d(nn.Conv2d, BayesianLayer):
     def __init__(
         self,
-        in_channels: int,
-        out_channels: int,
-        kernel_size: int,
+        in_channels,
+        out_channels,
+        kernel_size,
         prior_mean = 0.0,
         prior_std = 1.0,
-        stride: int = 1,
-        padding: int = 0,
-        dilation: int = 1,
-        groups: int = 1,
-        bias: bool = True,
-        padding_mode: str = 'zeros'
+        stride = 1,
+        padding = 0,
+        dilation = 1,
+        groups = 1,
+        bias = True,
+        padding_mode = 'zeros'
     ):
         super(BayesianConv2d, self).__init__(in_channels, out_channels, kernel_size, stride, padding, dilation, groups, bias, padding_mode)
         self.weight_std = nn.Parameter(torch.zeros_like(self.weight), requires_grad=True)

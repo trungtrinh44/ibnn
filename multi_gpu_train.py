@@ -52,7 +52,7 @@ def main():
     parser.add_argument('--dataset', default='cifar100', type=str, help='Name of dataset')
     parser.add_argument('--lr_ratio', dest='lr_ratio', action=StoreDictKeyPair, keys=('det', 'sto'))
     parser.add_argument('--posterior', dest="posterior", action=StoreDictKeyPair, keys=('mean_init', 'std_init'))
-    parser.add_argument('--milestones', nargs=2, type=int)
+    parser.add_argument('--milestones', nargs=2, type=float)
     parser.add_argument('--nodes', default=1, type=int, metavar='N',
                         help='number of data loading workers (default: 4)')
     parser.add_argument('--gpus', default=1, type=int,
@@ -65,10 +65,12 @@ def main():
     elif args.dataset == 'cifar10' or args.dataset == 'vgg_cifar10':
         args.num_classes = 10
     args.world_size = args.gpus * args.nodes
-    args.total_batch_size = args.batch_size * args.world_size
+    args.total_batch_size = args.batch_size['train'] * args.world_size
     os.environ['MASTER_ADDR'] = 'localhost'
     os.environ['MASTER_PORT'] = '8888'
-    os.makedirs(args.root, exist_ok=True)
+    if args.nr == 0:
+        os.makedirs(args.root, exist_ok=True)
+        print(args)
     mp.spawn(train, nprocs=args.gpus, args=(args,))
 
 def get_kl_weight(epoch, args):
@@ -91,18 +93,20 @@ def schedule(num_epochs, epoch, milestones, lr_ratio):
 
 def vb_loss(model, x, y, n_sample):
     y = y.unsqueeze(1).expand(-1, n_sample)
-    logp = D.Categorical(logits=model(x, n_sample)).log_prob(y).mean()
-    return -logp, model.kl()
+    logits, kl = model(x, n_sample, return_kl=True)
+    logp = D.Categorical(logits=logits).log_prob(y).mean()
+    return -logp, kl
 
 def parallel_nll(model, x, y, n_sample):
+    n_components = model.module.n_components
     indices = torch.empty(x.size(0)*n_sample, dtype=torch.long, device=x.device)
-    prob = torch.cat([model(x, n_sample, indices=torch.full((x.size(0)*n_sample,), idx, out=indices, device=x.device, dtype=torch.long)) for idx in range(model.n_components)], dim=1)
-    logp = D.Categorical(logits=prob).log_prob(y.unsqueeze(1).expand(-1, model.n_components*n_sample))
-    logp = torch.logsumexp(logp, 1) - torch.log(torch.tensor(model.n_components*n_sample, dtype=torch.float32, device=x.device))
+    prob = torch.cat([model(x, n_sample, indices=torch.full((x.size(0)*n_sample,), idx, out=indices, device=x.device, dtype=torch.long)) for idx in range(n_components)], dim=1)
+    logp = D.Categorical(logits=prob).log_prob(y.unsqueeze(1).expand(-1, n_components*n_sample))
+    logp = torch.logsumexp(logp, 1) - torch.log(torch.tensor(n_components*n_sample, dtype=torch.float32, device=x.device))
     return -logp.mean(), prob
 
 def get_model(args, gpu):
-    if args.model_name == 'StoWideResNet28x10':
+    if args.model == 'StoWideResNet28x10':
         model = StoWideResNet28x10(args.num_classes, args.n_components, args.prior['mean'], args.prior['std'])
         model.cuda(gpu)
         detp = []
@@ -122,7 +126,7 @@ def get_model(args, gpu):
             }], **args.sgd_params)
         scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, [lambda e: schedule(args.num_epochs, e, args.milestones, args.lr_ratio['det']), lambda e: schedule(args.num_epochs, e, args.milestones, args.lr_ratio['sto'])])
         model = nn.SyncBatchNorm.convert_sync_batchnorm(model)
-    elif args.model_name == 'StoVGG16':
+    elif args.model == 'StoVGG16':
         model = StoVGG16(args.num_classes, args.n_components, args.prior['mean'], args.prior['std'], args.posterior['mean_init'], args.posterior['std_init'])
         model.cuda(gpu)
         detp = []
@@ -178,46 +182,47 @@ def test_nll(model, loader, num_sample):
 
 def train(gpu, args):
     rank = args.nr * args.gpus + gpu
-    logger = get_logger(args, logging.getLogger())
+    dist.init_process_group(backend='nccl', init_method='env://', world_size=args.world_size, rank=rank)
+#     if rank == 0:
+#         logger = get_logger(args, mp.get_logger())
     train_loader, test_loader = get_dataloader(args, rank)
     if rank == 0:
-        logger.info(f"Train size: {len(train_loader.dataset)}, test size: {len(test_loader.dataset)}")
+        print(f"Train size: {len(train_loader.dataset)}, test size: {len(test_loader.dataset)}")
     n_batch = len(train_loader)
     torch.manual_seed(args.seed)
     torch.cuda.set_device(gpu)
     model, optimizer, scheduler = get_model(args, gpu)
     if rank == 0:
-        count_parameters(model, logger)
-        logger.info(str(model))
+#         count_parameters(model, logger)
+        print(str(model))
     checkpoint_dir = os.path.join(args.root, 'checkpoint.pt')
-    if args.model_name.startswith('Sto'):
+    if args.model.startswith('Sto'):
         model.train()
         for i in range(args.num_epochs):
             for bx, by in train_loader:
                 bx = bx.cuda(non_blocking=True)
                 by = by.cuda(non_blocking=True)
-                optimizer.zero_grad()
                 loglike, kl = vb_loss(model, bx, by, args.num_sample['train'])
                 klw = get_kl_weight(i, args)
                 loss = loglike + klw*kl/(n_batch*args.total_batch_size)
+                optimizer.zero_grad()
                 loss.backward()
                 optimizer.step()
             scheduler.step()
-            if (i+1) % args.logging_freq == 0 and rank == 0:
-                logger.info("VB Epoch %d: loglike: %.4f, kl: %.4f, kl weight: %.4f, lr1: %.4f, lr2: %.4f",
-                            i, loglike.item(), kl.item(), klw, optimizer.param_groups[0]['lr'], optimizer.param_groups[1]['lr'])
+            if (i+1) % args.logging_freq == 0:
+                print("VB Epoch %d: loglike: %.4f, kl: %.4f, kl weight: %.4f, lr1: %.4f, lr2: %.4f" % (i, loglike.item(), kl.item(), klw, optimizer.param_groups[0]['lr'], optimizer.param_groups[1]['lr']))
             if (i+1) % args.test_freq == 0:
                 if rank == 0:
                     torch.save(model.state_dict(), checkpoint_dir)
-                    logger.info('Save checkpoint')
+                    print('Save checkpoint')
                 with torch.no_grad():
                     nll, acc = test_nll(model, test_loader, args.num_sample['test'])
-                if rank == 0:
-                    logger.info("VB Epoch %d: test NLL %.4f, acc %.4f", i, nll, acc)
+#                 if rank == 0:
+                    print("VB Epoch %d: test NLL %.4f, acc %.4f" % (i, nll, acc))
                 model.train()
         if rank == 0:
             torch.save(model.state_dict(), checkpoint_dir)
-            logger.info('Save checkpoint')
+            print('Save checkpoint')
         tnll = 0
         acc = 0
         nll_miss = 0
@@ -243,5 +248,7 @@ def train(gpu, args):
         tnll /= len(test_loader.dataset)
         acc /= len(test_loader.dataset)
         if rank == 0:
-            logger.info("Test data: acc %.4f, nll %.4f, nll miss %.4f",
-                        acc, tnll, nll_miss)
+            print("Test data: acc %.4f, nll %.4f, nll miss %.4f" % (acc, tnll, nll_miss))
+
+if __name__ == '__main__':
+    main()

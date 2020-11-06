@@ -199,7 +199,7 @@ class StoVGG(nn.Module):
                 m.weight.data.normal_(0, math.sqrt(2.0 / n))
                 m.bias.data.zero_()
 
-    def forward(self, x, L=1, indices=None):
+    def forward(self, x, L=1, indices=None, return_kl=False):
         if L > 1:
             x = torch.repeat_interleave(x, L, dim=0)
         if indices is None:
@@ -217,6 +217,8 @@ class StoVGG(nn.Module):
                 x = layer(x)
         x = F.log_softmax(x, -1)
         x = x.view(-1, L, x.size(1))
+        if return_kl:
+            return x, self.kl()
         return x
     
     def kl(self):

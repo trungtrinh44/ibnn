@@ -112,7 +112,7 @@ def get_model(args, gpu):
         detp = []
         stop = []
         for name, param in model.named_parameters():
-            if 'posterior_mean' in name or 'posterior_std' in name or 'prior_mean' in name or 'prior_std' in name:
+            if 'posterior' in name or 'prior' in name:
                 stop.append(param)
             else:
                 detp.append(param)
@@ -132,7 +132,7 @@ def get_model(args, gpu):
         detp = []
         stop = []
         for name, param in model.named_parameters():
-            if 'posterior_mean' in name or 'posterior_std' in name or 'prior_mean' in name or 'prior_std' in name:
+            if 'posterior' in name or 'prior' in name:
                 stop.append(param)
             else:
                 detp.append(param)
@@ -204,7 +204,7 @@ def train(gpu, args):
                 by = by.cuda(non_blocking=True)
                 loglike, kl = vb_loss(model, bx, by, args.num_sample['train'])
                 klw = get_kl_weight(i, args)
-                loss = args.gpus*loglike + klw*kl/(n_batch*args.batch_size['train'])
+                loss = loglike + klw*kl/(n_batch*args.total_batch_size)
                 optimizer.zero_grad()
                 loss.backward()
                 optimizer.step()

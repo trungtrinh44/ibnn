@@ -172,7 +172,7 @@ class StoWideResNet(nn.Module):
 
         return nn.ModuleList(layers)
 
-    def forward(self, x, L=1, indices=None):
+    def forward(self, x, L=1, indices=None, return_kl=False):
         if L > 1:
             x = torch.repeat_interleave(x, L, dim=0)
         if indices is None:
@@ -189,6 +189,8 @@ class StoWideResNet(nn.Module):
         out = out.view(out.size(0), -1)
         out = F.log_softmax(self.linear(out, indices), -1)
         out = out.view(-1, L, out.size(1))
+        if return_kl:
+            return out, self.kl()
         return out
     
     def kl(self):

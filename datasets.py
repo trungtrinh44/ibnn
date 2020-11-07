@@ -26,11 +26,11 @@ def get_distributed_data_loader(dataset, num_replicas, rank, train_batch_size=64
         ])
         train_data = torchvision.datasets.CIFAR10(root_dir, train=True, download=True, transform=train_transform)
         train_sampler = distributed.DistributedSampler(train_data, num_replicas=num_replicas, rank=rank, seed=seed, shuffle=True, drop_last=True)
-        train_loader = DataLoader(train_data, batch_size=train_batch_size, pin_memory=True, shuffle=False, num_workers=0, sampler=train_sampler)
+        train_loader = DataLoader(train_data, batch_size=train_batch_size, pin_memory=True, shuffle=False, num_workers=0, sampler=train_sampler, drop_last=True)
 
         test_data = torchvision.datasets.CIFAR10(root_dir, train=False, download=True, transform=transform)
         test_sampler = distributed.DistributedSampler(test_data, num_replicas=num_replicas, rank=rank, shuffle=False, drop_last=False)
-        test_loader = DataLoader(test_data, batch_size=test_batch_size, pin_memory=True, shuffle=False, num_workers=0, sampler=test_sampler)
+        test_loader = DataLoader(test_data, batch_size=test_batch_size, pin_memory=True, shuffle=False, num_workers=0, sampler=test_sampler, drop_last=False)
         
         return train_loader, test_loader
     if dataset == 'cifar100':
@@ -48,7 +48,7 @@ def get_distributed_data_loader(dataset, num_replicas, rank, train_batch_size=64
         ])
         train_data = torchvision.datasets.CIFAR100(root_dir, train=True, download=True, transform=train_transform)
         train_sampler = distributed.DistributedSampler(train_data, num_replicas=num_replicas, rank=rank, seed=seed, shuffle=True, drop_last=True)
-        train_loader = DataLoader(train_data, batch_size=train_batch_size, pin_memory=True, shuffle=False, num_workers=0, sampler=train_sampler)
+        train_loader = DataLoader(train_data, batch_size=train_batch_size, pin_memory=True, shuffle=False, num_workers=0, sampler=train_sampler, drop_last=True)
 
         test_data = torchvision.datasets.CIFAR100(root_dir, train=False, download=True, transform=transform)
         test_sampler = distributed.DistributedSampler(test_data, num_replicas=num_replicas, rank=rank, shuffle=False, drop_last=False)
@@ -70,7 +70,7 @@ def get_distributed_data_loader(dataset, num_replicas, rank, train_batch_size=64
         ])
         train_data = torchvision.datasets.CIFAR10(root_dir, train=True, download=True, transform=train_transform)
         train_sampler = distributed.DistributedSampler(train_data, num_replicas=num_replicas, rank=rank, seed=seed, shuffle=True, drop_last=True)
-        train_loader = DataLoader(train_data, batch_size=train_batch_size, pin_memory=True, shuffle=False, num_workers=0, sampler=train_sampler)
+        train_loader = DataLoader(train_data, batch_size=train_batch_size, pin_memory=True, shuffle=False, num_workers=0, sampler=train_sampler, drop_last=True)
 
         test_data = torchvision.datasets.CIFAR10(root_dir, train=False, download=True, transform=transform)
         test_sampler = distributed.DistributedSampler(test_data, num_replicas=num_replicas, rank=rank, shuffle=False, drop_last=False)
@@ -92,7 +92,7 @@ def get_distributed_data_loader(dataset, num_replicas, rank, train_batch_size=64
         ])
         train_data = torchvision.datasets.CIFAR100(root_dir, train=True, download=True, transform=train_transform)
         train_sampler = distributed.DistributedSampler(train_data, num_replicas=num_replicas, rank=rank, seed=seed, shuffle=True, drop_last=True)
-        train_loader = DataLoader(train_data, batch_size=train_batch_size, pin_memory=True, shuffle=False, num_workers=0, sampler=train_sampler)
+        train_loader = DataLoader(train_data, batch_size=train_batch_size, pin_memory=True, shuffle=False, num_workers=0, sampler=train_sampler, drop_last=True)
 
         test_data = torchvision.datasets.CIFAR100(root_dir, train=False, download=True, transform=transform)
         test_sampler = distributed.DistributedSampler(test_data, num_replicas=num_replicas, rank=rank, shuffle=False, drop_last=False)

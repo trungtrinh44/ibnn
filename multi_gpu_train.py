@@ -124,7 +124,7 @@ def vb_loss(model, x, y, n_sample):
     logp = D.Categorical(logits=data_parallel(model, x, n_sample)).log_prob(y).mean()
     return -logp, model.kl()
 
-def nll(model, x, y, n_sample):
+def parallel_nll(model, x, y, n_sample):
     indices = torch.empty(x.size(0)*n_sample, dtype=torch.long, device=x.device)
     prob = torch.cat([data_parallel(model, x, n_sample, indices=torch.full((x.size(0)*n_sample,), idx, out=indices, device=x.device, dtype=torch.long)) for idx in range(model.n_components)], dim=1)
     logp = D.Categorical(logits=prob).log_prob(y.unsqueeze(1).expand(-1, model.n_components*n_sample))
@@ -138,7 +138,7 @@ def get_model(model_name, num_classes, prior_mean, prior_std, n_components, devi
         detp = []
         stop = []
         for name, param in model.named_parameters():
-            if 'posterior_mean' in name or 'posterior_std' in name or 'prior_mean' in name or 'prior_std' in name:
+            if 'posterior' in name or 'prior' in name:
                 stop.append(param)
             else:
                 detp.append(param)
@@ -156,7 +156,7 @@ def get_model(model_name, num_classes, prior_mean, prior_std, n_components, devi
         detp = []
         stop = []
         for name, param in model.named_parameters():
-            if 'posterior_mean' in name or 'posterior_std' in name or 'prior_mean' in name or 'prior_std' in name:
+            if 'posterior' in name or 'prior' in name:
                 stop.append(param)
             else:
                 detp.append(param)
@@ -228,7 +228,7 @@ def test_nll(model, loader, device, num_test_sample):
         for bx, by in loader:
             bx = bx.to(device)
             by = by.to(device)
-            bnll, pred = nll(model, bx, by, num_test_sample)
+            bnll, pred = parallel_nll(model, bx, by, num_test_sample)
             nll += bnll.item() * bx.size(0)
             acc += (pred.exp().mean(1).argmax(-1) == by).sum().item()
         acc /= len(loader.dataset)

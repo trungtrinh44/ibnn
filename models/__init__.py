@@ -3,7 +3,7 @@ from .resnet import *
 from .vgg import *
 
 def get_model_from_config(config):
-    model_name = config.get('model_name', config['model'])
+    model_name = config.get('model_name', config.get('model'))
     if model_name ==  'StoWideResNet28x10':
         return StoWideResNet28x10(config['num_classes'], config['n_components'], 1.0, 0.3)
     if model_name ==  'DetWideResNet28x10':

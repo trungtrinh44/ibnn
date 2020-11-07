@@ -1,10 +1,11 @@
 import argparse
 import ast
 import logging
+import logging.handlers
 import os
 from bisect import bisect
 from itertools import chain
-
+from time import sleep
 import numpy as np
 import torch
 import torch.distributed as dist
@@ -33,6 +34,33 @@ class StoreDictKeyPair(argparse.Action):
         }
         setattr(namespace, self.dest, my_dict)
 
+def worker_configurer(queue):
+    h = logging.handlers.QueueHandler(queue)  # Just the one handler needed
+    root = logging.getLogger()
+    root.addHandler(h)
+    # send all messages, for demo; no other level or filter logic applied.
+    root.setLevel(logging.INFO)        
+
+def listener_configurer(path):
+    root = logging.getLogger()
+    file_handler = logging.FileHandler(path)
+    console_handler = logging.StreamHandler()
+    formatter = logging.Formatter('%(asctime)s %(processName)-10s %(name)s %(levelname)-8s %(message)s')
+    file_handler.setFormatter(formatter)
+    console_handler.setFormatter(formatter)
+    root.addHandler(file_handler)
+    root.addHandler(console_handler)
+    root.setLevel(logging.INFO)
+
+def listener_process(queue, path):
+    listener_configurer(path)
+    while True:
+        while not queue.empty():
+            record = queue.get()
+            logger = logging.getLogger(record.name)
+            logger.handle(record)  # No level or filter logic applied - just do it!
+        sleep(1)
+    
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--seed', default=1, type=int, help='random seed')
@@ -71,7 +99,13 @@ def main():
     if args.nr == 0:
         os.makedirs(args.root, exist_ok=True)
         print(args)
-    mp.spawn(train, nprocs=args.gpus, args=(args,))
+    ctx = mp.get_context('spawn')
+    queue = ctx.Queue(-1)
+    ctx = mp.spawn(train, nprocs=args.gpus, args=(args, queue), join=False)
+    listener = mp.Process(
+        target=listener_process, args=(queue, os.path.join(args.root, f'train.log')))
+    listener.start()
+    ctx.join()
 
 def get_kl_weight(epoch, args):
     kl_max = args.kl_weight['kl_max']
@@ -155,8 +189,8 @@ def get_dataloader(args, rank):
                                        test_batch_size=args.batch_size['test'], seed=args.seed)
 
 
-def get_logger(args, logger):
-    fh = logging.FileHandler(os.path.join(args.root, 'train.log'))
+def get_logger(args, logger, rank):
+    fh = logging.FileHandler(os.path.join(args.root, f'process{rank}.log'))
     fh.setLevel(logging.INFO)
     formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
     fh.setFormatter(formatter)
@@ -180,23 +214,22 @@ def test_nll(model, loader, num_sample):
     return nll, acc
 
 
-def train(gpu, args):
+def train(gpu, args, queue):
+    worker_configurer(queue)
     rank = args.nr * args.gpus + gpu
     dist.init_process_group(backend='nccl', init_method='env://', world_size=args.world_size, rank=rank)
-#     if rank == 0:
-#         logger = get_logger(args, mp.get_logger())
+    logger = logging.getLogger(f'worker-{rank}')
     train_loader, test_loader = get_dataloader(args, rank)
     if rank == 0:
-        print(f"Train size: {len(train_loader.dataset)}, test size: {len(test_loader.dataset)}")
+        logger.info(f"Train size: {len(train_loader.dataset)}, test size: {len(test_loader.dataset)}")
     n_batch = len(train_loader)
     print(f"Train size: {len(train_loader)}, test size: {len(test_loader)}")
-    torch.manual_seed(args.seed)
+    torch.manual_seed(args.seed + rank*123)
     torch.cuda.set_device(gpu)
     model, optimizer, scheduler = get_model(args, gpu)
-    torch.manual_seed(args.seed + rank*123)
     if rank == 0:
-#         count_parameters(model, logger)
-        print(str(model))
+        count_parameters(model, logger)
+        logger.info(str(model))
     checkpoint_dir = os.path.join(args.root, 'checkpoint.pt')
     if args.model.startswith('Sto'):
         model.train()
@@ -212,19 +245,20 @@ def train(gpu, args):
                 optimizer.step()
             scheduler.step()
             if (i+1) % args.logging_freq == 0:
-                print("VB Epoch %d: loglike: %.4f, kl: %.4f, kl weight: %.4f, lr1: %.4f, lr2: %.4f" % (i, loglike.item(), kl.item(), klw, optimizer.param_groups[0]['lr'], optimizer.param_groups[1]['lr']))
+                logger.info("VB Epoch %d: loglike: %.4f, kl: %.4f, kl weight: %.4f, lr1: %.4f, lr2: %.4f",
+                            i, loglike.item(), kl.item(), klw, optimizer.param_groups[0]['lr'], optimizer.param_groups[1]['lr'])
             if (i+1) % args.test_freq == 0:
                 if rank == 0:
                     torch.save(model.module.state_dict(), checkpoint_dir)
-                    print('Save checkpoint')
+                    logger.info('Save checkpoint')
                 with torch.no_grad():
                     nll, acc = test_nll(model, test_loader, args.num_sample['test'])
 #                 if rank == 0:
-                    print("VB Epoch %d: test NLL %.4f, acc %.4f" % (i, nll, acc))
+                logger.info("VB Epoch %d: test NLL %.4f, acc %.4f", i, nll, acc)
                 model.train()
         if rank == 0:
             torch.save(model.module.state_dict(), checkpoint_dir)
-            print('Save checkpoint')
+            logger.info('Save checkpoint')
         tnll = 0
         acc = 0
         nll_miss = 0
@@ -249,8 +283,8 @@ def train(gpu, args):
         nll_miss /= len(test_loader.dataset) - acc
         tnll /= len(test_loader.dataset)
         acc /= len(test_loader.dataset)
-        if rank == 0:
-            print("Test data: acc %.4f, nll %.4f, nll miss %.4f" % (acc, tnll, nll_miss))
+        #if rank == 0:
+        logger.info("Test data: acc %.4f, nll %.4f, nll miss %.4f" % (acc, tnll, nll_miss))
 
 if __name__ == '__main__':
     main()

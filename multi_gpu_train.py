@@ -105,7 +105,7 @@ def main():
         os.makedirs(args.root, exist_ok=True)
         print(args)
         with open(os.path.join(args.root, 'config.json'), 'w') as out:
-            json.dump(vars(args), out)
+            json.dump(vars(args), out, indent=2)
     ctx = mp.get_context('spawn')
     queue = ctx.Queue(-1)
     ctx = mp.spawn(train, nprocs=args.gpus, args=(args, queue), join=False)

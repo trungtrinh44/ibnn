@@ -21,7 +21,8 @@ pip install -r requirements.txt
 |   +-- vgg.py (containing the VGG model)
 |   +-- utils.py (utility functions and modules)
 +-- datasets.py (containing functions to load data)
-+-- train.py (script for training)
++-- train.py (script for single-gpu training)
++-- multi_gpu_train.py (script for multi-gpu training)
 +-- test.py (script for testing)
 +-- ood_test.py (script for out-of-distribution testing)
 ```
@@ -73,6 +74,53 @@ To test the model
 python test.py <EXPERIMENT_FOLDER> -n 5 -b 128
 ```
 where `-n` option defines the number of samples to use in each component, and `-b` option defines the batch size. The test result will be in the `<EXPERIMENT_FOLDER>/<DATASET>/result.json` file.
+
+## Multi-gpus training
+We can train the iBNN on multi-gpus on single node via `nn.parallel.DistributedDataParallel` from Pytorch to speed up the training time and allow us to increase the number of posterior components since the training complexity scales linearly with respect to the number of components.
+
+Training VGG16 with 48 components on CIFAR-100
+```bash
+python multi_gpu_train.py --seed <SEED> --model StoVGG16 --kl_weight "{'kl_min':0.0,'kl_max':1.0,'last_iter':200}" \
+        --batch_size "{'train':256,'test':100}" --root <ROOT_DIR> \
+        --prior "{'mean':1.0,'std':0.3}" --n_components 48 \
+        --det_params "{'lr':0.1,'weight_decay':0.0003}" --sto_params "{'lr':19.2,'weight_decay':0.0}" \
+        --sgd_params "{'momentum':0.9,'nesterov':True,'dampening':0.0}" --num_sample "{'train':6,'test':1}" \
+        --dataset vgg_cifar100 --lr_ratio "{'det':0.01,'sto':1.0}" \
+        --posterior "{'mean_init':(1.0,0.75),'std_init':(0.05,0.02)}" --milestones 0.5 0.9 \
+        --nodes 1 --gpus <NUM_GPUS> --nr 0 --num_epochs 300
+```
+Training VGG16 with 64 components on CIFAR-100
+```bash
+python multi_gpu_train.py --seed <SEED> --model StoVGG16 --kl_weight "{'kl_min':0.0,'kl_max':1.0,'last_iter':200}" \
+        --batch_size "{'train':256,'test':100}" --root <ROOT_DIR> \
+        --prior "{'mean':1.0,'std':0.3}" --n_components 64 \
+        --det_params "{'lr':0.1,'weight_decay':0.0003}" --sto_params "{'lr':25.6,'weight_decay':0.0}" \
+        --sgd_params "{'momentum':0.9,'nesterov':True,'dampening':0.0}" --num_sample "{'train':8,'test':1}" \
+        --dataset vgg_cifar100 --lr_ratio "{'det':0.01,'sto':1.0}" \
+        --posterior "{'mean_init':(1.0,0.75),'std_init':(0.05,0.02)}" --milestones 0.5 0.9 \
+        --nodes 1 --gpus <NUM_GPUS> --nr 0 --num_epochs 300
+```
+Training WideResNet28x10 with 32 components on CIFAR-100
+```bash
+python multi_gpu_train.py --seed <SEED> --model StoWideResNet28x10 --kl_weight "{'kl_min':0.0,'kl_max':1.0,'last_iter':200}" \
+        --batch_size "{'train':128,'test':100}" --root <ROOT_DIR> --prior "{'mean':1.0,'std':0.1}" \
+        --n_components 32 --det_params "{'lr':0.1,'weight_decay':0.0005}" --sto_params "{'lr':19.2,'weight_decay':0.0}" \
+        --sgd_params "{'momentum':0.9,'nesterov':True,'dampening':0.0}" --num_sample "{'train':4,'test':1}" \
+        --dataset cifar100 --lr_ratio "{'det':0.01,'sto':1.0}" \
+        --posterior "{'mean_init':(1.0,0.75),'std_init':(0.05,0.02)}" --milestones 0.5 0.9 \
+        --nodes 1 --gpus <NUM_GPUS> --nr 0 --num_epochs 300
+```
+After training, folder `<ROOT_DIR>` will have 3 files: `checkpoint.pt`, `config.json` and `train.log`.
+Table belows compares the runtime between experiments with different number of GPUs:
+
+| Model | Dataset   | #components | GPU               | Runtime | Test NLL | Tess accuracy (%) |
+|-------|-----------|-------------|-------------------|---------|----------|-------------------|
+| VGG16 | CIFAR-100 | 48          | 1xTesla V100 32gb | 4h28m   | 0.9378   | 75.57             |
+| VGG16 | CIFAR-100 | 48          | 2xTesla V100 32gb | 2h44m   | 0.9302   | 75.15             |
+| VGG16 | CIFAR-100 | 48          | 4xTesla P100 16gb | 3h03m   | 0.9444   | 75.47             |
+| VGG16 | CIFAR-100 | 64          | 4xTesla V100 32gb | 2h58m   | 0.9278   | 75.40             |
+
+We can see that using more GPUs allow us to shorten the runtime while maintaining the model performance within a certain range (the difference in performance is due to the randomness during training.)
 
 ## Note on how to create new model
 

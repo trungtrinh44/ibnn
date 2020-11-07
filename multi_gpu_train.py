@@ -146,6 +146,7 @@ def get_model(args, gpu):
     if args.model == 'StoWideResNet28x10':
         model = StoWideResNet28x10(args.num_classes, args.n_components, args.prior['mean'], args.prior['std'])
         model.cuda(gpu)
+        model = nn.SyncBatchNorm.convert_sync_batchnorm(model)
         detp = []
         stop = []
         for name, param in model.named_parameters():
@@ -162,7 +163,6 @@ def get_model(args, gpu):
                 **args.sto_params
             }], **args.sgd_params)
         scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, [lambda e: schedule(args.num_epochs, e, args.milestones, args.lr_ratio['det']), lambda e: schedule(args.num_epochs, e, args.milestones, args.lr_ratio['sto'])])
-        model = nn.SyncBatchNorm.convert_sync_batchnorm(model)
     elif args.model == 'StoVGG16':
         model = StoVGG16(args.num_classes, args.n_components, args.prior['mean'], args.prior['std'], args.posterior['mean_init'], args.posterior['std_init'])
         model.cuda(gpu)

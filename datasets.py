@@ -25,14 +25,14 @@ def get_distributed_data_loader(dataset, num_replicas, rank, train_batch_size=64
             transform
         ])
         train_data = torchvision.datasets.CIFAR10(root_dir, train=True, download=True, transform=train_transform)
-        train_sampler = distributed.DistributedSampler(train_data, num_replicas=num_replicas, rank=rank, seed=seed, shuffle=True, drop_last=True)
+        train_sampler = distributed.DistributedSampler(train_data, seed=seed, shuffle=True, drop_last=True)
         train_loader = DataLoader(train_data, batch_size=train_batch_size, pin_memory=True, shuffle=False, num_workers=0, sampler=train_sampler, drop_last=True)
 
         test_data = torchvision.datasets.CIFAR10(root_dir, train=False, download=True, transform=transform)
-        test_sampler = distributed.DistributedSampler(test_data, num_replicas=num_replicas, rank=rank, shuffle=False, drop_last=False)
+        test_sampler = distributed.DistributedSampler(test_data, shuffle=False, drop_last=False)
         test_loader = DataLoader(test_data, batch_size=test_batch_size, pin_memory=True, shuffle=False, num_workers=0, sampler=test_sampler, drop_last=False)
         
-        return train_loader, test_loader
+        return train_loader, test_loader, train_sampler, test_sampler
     if dataset == 'cifar100':
         transform = torchvision.transforms.Compose([
             torchvision.transforms.ToTensor(),
@@ -47,14 +47,14 @@ def get_distributed_data_loader(dataset, num_replicas, rank, train_batch_size=64
             transform
         ])
         train_data = torchvision.datasets.CIFAR100(root_dir, train=True, download=True, transform=train_transform)
-        train_sampler = distributed.DistributedSampler(train_data, num_replicas=num_replicas, rank=rank, seed=seed, shuffle=True, drop_last=True)
+        train_sampler = distributed.DistributedSampler(train_data, seed=seed, shuffle=True, drop_last=True)
         train_loader = DataLoader(train_data, batch_size=train_batch_size, pin_memory=True, shuffle=False, num_workers=0, sampler=train_sampler, drop_last=True)
 
         test_data = torchvision.datasets.CIFAR100(root_dir, train=False, download=True, transform=transform)
-        test_sampler = distributed.DistributedSampler(test_data, num_replicas=num_replicas, rank=rank, shuffle=False, drop_last=False)
+        test_sampler = distributed.DistributedSampler(test_data, shuffle=False, drop_last=False)
         test_loader = DataLoader(test_data, batch_size=test_batch_size, pin_memory=True, shuffle=False, num_workers=0, sampler=test_sampler)
         
-        return train_loader, test_loader
+        return train_loader, test_loader, train_sampler, test_sampler
     if dataset == 'vgg_cifar10':
         transform = torchvision.transforms.Compose([
             torchvision.transforms.ToTensor(),
@@ -69,14 +69,14 @@ def get_distributed_data_loader(dataset, num_replicas, rank, train_batch_size=64
             transform
         ])
         train_data = torchvision.datasets.CIFAR10(root_dir, train=True, download=True, transform=train_transform)
-        train_sampler = distributed.DistributedSampler(train_data, num_replicas=num_replicas, rank=rank, seed=seed, shuffle=True, drop_last=True)
+        train_sampler = distributed.DistributedSampler(train_data, seed=seed, shuffle=True, drop_last=True)
         train_loader = DataLoader(train_data, batch_size=train_batch_size, pin_memory=True, shuffle=False, num_workers=0, sampler=train_sampler, drop_last=True)
 
         test_data = torchvision.datasets.CIFAR10(root_dir, train=False, download=True, transform=transform)
-        test_sampler = distributed.DistributedSampler(test_data, num_replicas=num_replicas, rank=rank, shuffle=False, drop_last=False)
+        test_sampler = distributed.DistributedSampler(test_data, shuffle=False, drop_last=False)
         test_loader = DataLoader(test_data, batch_size=test_batch_size, pin_memory=True, shuffle=False, num_workers=0, sampler=test_sampler)
         
-        return train_loader, test_loader
+        return train_loader, test_loader, train_sampler, test_sampler
     if dataset == 'vgg_cifar100':
         transform = torchvision.transforms.Compose([
             torchvision.transforms.ToTensor(),
@@ -91,14 +91,14 @@ def get_distributed_data_loader(dataset, num_replicas, rank, train_batch_size=64
             transform
         ])
         train_data = torchvision.datasets.CIFAR100(root_dir, train=True, download=True, transform=train_transform)
-        train_sampler = distributed.DistributedSampler(train_data, num_replicas=num_replicas, rank=rank, seed=seed, shuffle=True, drop_last=True)
+        train_sampler = distributed.DistributedSampler(train_data, seed=seed, shuffle=True, drop_last=True)
         train_loader = DataLoader(train_data, batch_size=train_batch_size, pin_memory=True, shuffle=False, num_workers=0, sampler=train_sampler, drop_last=True)
 
         test_data = torchvision.datasets.CIFAR100(root_dir, train=False, download=True, transform=transform)
-        test_sampler = distributed.DistributedSampler(test_data, num_replicas=num_replicas, rank=rank, shuffle=False, drop_last=False)
+        test_sampler = distributed.DistributedSampler(test_data, shuffle=False, drop_last=False)
         test_loader = DataLoader(test_data, batch_size=test_batch_size, pin_memory=True, shuffle=False, num_workers=0, sampler=test_sampler)
         
-        return train_loader, test_loader
+        return train_loader, test_loader, train_sampler, test_sampler
 
 def get_data_loader(dataset, batch_size=64, validation=False, validation_fraction=0.1, random_state=42, root_dir='data/', test_only=False, train_only=False, augment=True, degree=0):
     if dataset == 'mnist' and degree != 0:

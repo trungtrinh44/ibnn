@@ -13,6 +13,7 @@ import torch.distributions as D
 import torch.multiprocessing as mp
 import torch.nn as nn
 import torchvision
+import json
 from torch.nn.parallel import DistributedDataParallel as DDP
 
 from datasets import get_distributed_data_loader
@@ -99,6 +100,8 @@ def main():
     if args.nr == 0:
         os.makedirs(args.root, exist_ok=True)
         print(args)
+        with open(os.path.join(args.root, 'config.json'), 'w') as out:
+            json.dump(vars(args), out)
     ctx = mp.get_context('spawn')
     queue = ctx.Queue(-1)
     ctx = mp.spawn(train, nprocs=args.gpus, args=(args, queue), join=False)
@@ -219,11 +222,11 @@ def train(gpu, args, queue):
     rank = args.nr * args.gpus + gpu
     dist.init_process_group(backend='nccl', init_method='env://', world_size=args.world_size, rank=rank)
     logger = logging.getLogger(f'worker-{rank}')
-    train_loader, test_loader = get_dataloader(args, rank)
+    train_loader, test_loader, train_sampler, test_sampler = get_dataloader(args, rank)
     if rank == 0:
         logger.info(f"Train size: {len(train_loader.dataset)}, test size: {len(test_loader.dataset)}")
     n_batch = len(train_loader)
-    print(f"Train size: {len(train_loader)}, test size: {len(test_loader)}")
+    logger.info(f"Train size: {len(train_loader)}, test size: {len(test_loader)}")
     torch.manual_seed(args.seed + rank*123)
     torch.cuda.set_device(gpu)
     model, optimizer, scheduler = get_model(args, gpu)
@@ -234,6 +237,7 @@ def train(gpu, args, queue):
     if args.model.startswith('Sto'):
         model.train()
         for i in range(args.num_epochs):
+            train_sampler.set_epoch(i)
             for bx, by in train_loader:
                 bx = bx.cuda(non_blocking=True)
                 by = by.cuda(non_blocking=True)

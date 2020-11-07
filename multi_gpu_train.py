@@ -23,6 +23,7 @@ from models import (BayesianVGG16, BayesianWideResNet28x10, DetVGG16,
 
 torch.backends.cudnn.benchmark = True
 torch.backends.cudnn.deterministic = False
+END_MSG = "PROCESS_END"
 
 class StoreDictKeyPair(argparse.Action): 
     def __init__(self, option_strings, dest, keys, nargs=None, const=None, default=None, type=None, choices=None, required=False, help=None, metavar=None): 
@@ -53,11 +54,14 @@ def listener_configurer(path):
     root.addHandler(console_handler)
     root.setLevel(logging.INFO)
 
-def listener_process(queue, path):
+def listener_process(queue, path, n_processes):
     listener_configurer(path)
-    while True:
+    end_count = 0
+    while end_count < n_processes:
         while not queue.empty():
             record = queue.get()
+            if record.message == END_MSG:
+                end_count += 1
             logger = logging.getLogger(record.name)
             logger.handle(record)  # No level or filter logic applied - just do it!
         sleep(1)
@@ -106,7 +110,7 @@ def main():
     queue = ctx.Queue(-1)
     ctx = mp.spawn(train, nprocs=args.gpus, args=(args, queue), join=False)
     listener = mp.Process(
-        target=listener_process, args=(queue, os.path.join(args.root, f'train.log')))
+        target=listener_process, args=(queue, os.path.join(args.root, f'train.log'), args.gpus))
     listener.start()
     ctx.join()
 
@@ -273,7 +277,7 @@ def train(gpu, args, queue):
                 by = by.cuda(non_blocking=True)
                 indices = torch.empty(bx.size(0)*args.num_sample['test'], dtype=torch.long, device=bx.device)
                 prob = torch.cat([model(bx, args.num_sample['test'], indices=torch.full((bx.size(0)*args.num_sample['test'],), idx, out=indices, device=bx.device, dtype=torch.long)) for idx in range(model.module.n_components)], dim=1)
-                y_target = by.unsqueeze(1).expand(-1, args.num_sample['test']*model.n_components)
+                y_target = by.unsqueeze(1).expand(-1, args.num_sample['test']*model.module.n_components)
                 bnll = D.Categorical(logits=prob).log_prob(y_target)
                 bnll = torch.logsumexp(bnll, dim=1) - torch.log(torch.tensor(args.num_sample['test']*model.module.n_components, dtype=torch.float32, device=bnll.device))
                 tnll -= bnll.sum().item()
@@ -289,6 +293,7 @@ def train(gpu, args, queue):
         acc /= len(test_loader.dataset)
         #if rank == 0:
         logger.info("Test data: acc %.4f, nll %.4f, nll miss %.4f" % (acc, tnll, nll_miss))
+    logger.info(END_MSG)
 
 if __name__ == '__main__':
     main()

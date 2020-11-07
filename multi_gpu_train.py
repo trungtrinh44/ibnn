@@ -204,7 +204,7 @@ def train(gpu, args):
                 by = by.cuda(non_blocking=True)
                 loglike, kl = vb_loss(model, bx, by, args.num_sample['train'])
                 klw = get_kl_weight(i, args)
-                loss = loglike + klw*kl/(n_batch*args.total_batch_size)
+                loss = args.gpus*loglike + klw*kl/(n_batch*args.batch_size['train'])
                 optimizer.zero_grad()
                 loss.backward()
                 optimizer.step()

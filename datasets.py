@@ -2,7 +2,7 @@ import torch
 import torchvision
 from sklearn.model_selection import train_test_split
 import numpy as np
-from torch.utils.data import DataLoader, Subset
+from torch.utils.data import DataLoader, Subset, distributed
 
 
 def infinite_wrapper(loader):
@@ -10,6 +10,95 @@ def infinite_wrapper(loader):
         for x in loader:
             yield x
 
+def get_distributed_data_loader(dataset, num_replicas, rank, train_batch_size=64, test_batch_size=64, seed=42, root_dir='data/'):
+    if dataset == 'cifar10':
+        transform = torchvision.transforms.Compose([
+            torchvision.transforms.ToTensor(),
+            torchvision.transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
+        ])
+        augment_transform = [
+            torchvision.transforms.RandomCrop(32, padding=4),
+            torchvision.transforms.RandomHorizontalFlip()
+        ]
+        train_transform = torchvision.transforms.Compose([
+            *augment_transform,
+            transform
+        ])
+        train_data = torchvision.datasets.CIFAR10(root_dir, train=True, download=True, transform=train_transform)
+        train_sampler = distributed.DistributedSampler(train_data, seed=seed, shuffle=True, drop_last=True)
+        train_loader = DataLoader(train_data, batch_size=train_batch_size, pin_memory=True, shuffle=False, num_workers=0, sampler=train_sampler, drop_last=True)
+
+        test_data = torchvision.datasets.CIFAR10(root_dir, train=False, download=True, transform=transform)
+        test_sampler = distributed.DistributedSampler(test_data, shuffle=False, drop_last=False)
+        test_loader = DataLoader(test_data, batch_size=test_batch_size, pin_memory=True, shuffle=False, num_workers=0, sampler=test_sampler, drop_last=False)
+        
+        return train_loader, test_loader, train_sampler, test_sampler
+    if dataset == 'cifar100':
+        transform = torchvision.transforms.Compose([
+            torchvision.transforms.ToTensor(),
+            torchvision.transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
+        ])
+        augment_transform = [
+            torchvision.transforms.RandomCrop(32, padding=4),
+            torchvision.transforms.RandomHorizontalFlip()
+        ]
+        train_transform = torchvision.transforms.Compose([
+            *augment_transform,
+            transform
+        ])
+        train_data = torchvision.datasets.CIFAR100(root_dir, train=True, download=True, transform=train_transform)
+        train_sampler = distributed.DistributedSampler(train_data, seed=seed, shuffle=True, drop_last=True)
+        train_loader = DataLoader(train_data, batch_size=train_batch_size, pin_memory=True, shuffle=False, num_workers=0, sampler=train_sampler, drop_last=True)
+
+        test_data = torchvision.datasets.CIFAR100(root_dir, train=False, download=True, transform=transform)
+        test_sampler = distributed.DistributedSampler(test_data, shuffle=False, drop_last=False)
+        test_loader = DataLoader(test_data, batch_size=test_batch_size, pin_memory=True, shuffle=False, num_workers=0, sampler=test_sampler)
+        
+        return train_loader, test_loader, train_sampler, test_sampler
+    if dataset == 'vgg_cifar10':
+        transform = torchvision.transforms.Compose([
+            torchvision.transforms.ToTensor(),
+            torchvision.transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225)),
+        ])
+        augment_transform = [
+            torchvision.transforms.RandomCrop(32, padding=4),
+            torchvision.transforms.RandomHorizontalFlip()
+        ]
+        train_transform = torchvision.transforms.Compose([
+            *augment_transform,
+            transform
+        ])
+        train_data = torchvision.datasets.CIFAR10(root_dir, train=True, download=True, transform=train_transform)
+        train_sampler = distributed.DistributedSampler(train_data, seed=seed, shuffle=True, drop_last=True)
+        train_loader = DataLoader(train_data, batch_size=train_batch_size, pin_memory=True, shuffle=False, num_workers=0, sampler=train_sampler, drop_last=True)
+
+        test_data = torchvision.datasets.CIFAR10(root_dir, train=False, download=True, transform=transform)
+        test_sampler = distributed.DistributedSampler(test_data, shuffle=False, drop_last=False)
+        test_loader = DataLoader(test_data, batch_size=test_batch_size, pin_memory=True, shuffle=False, num_workers=0, sampler=test_sampler)
+        
+        return train_loader, test_loader, train_sampler, test_sampler
+    if dataset == 'vgg_cifar100':
+        transform = torchvision.transforms.Compose([
+            torchvision.transforms.ToTensor(),
+            torchvision.transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225)),
+        ])
+        augment_transform = [
+            torchvision.transforms.RandomCrop(32, padding=4),
+            torchvision.transforms.RandomHorizontalFlip()
+        ]
+        train_transform = torchvision.transforms.Compose([
+            *augment_transform,
+            transform
+        ])
+        train_data = torchvision.datasets.CIFAR100(root_dir, train=True, download=True, transform=train_transform)
+        train_sampler = distributed.DistributedSampler(train_data, seed=seed, shuffle=True, drop_last=True)
+        train_loader = DataLoader(train_data, batch_size=train_batch_size, pin_memory=True, shuffle=False, num_workers=0, sampler=train_sampler, drop_last=True)
+
+        test_data = torchvision.datasets.CIFAR100(root_dir, train=False, download=True, transform=transform)
+        test_sampler = distributed.DistributedSampler(test_data, shuffle=False, drop_last=False)
+        test_loader = DataLoader(test_data, batch_size=test_batch_size, pin_memory=True, shuffle=False, num_workers=0, sampler=test_sampler)
+        
+        return train_loader, test_loader, train_sampler, test_sampler
 
 def get_data_loader(dataset, batch_size=64, validation=False, validation_fraction=0.1, random_state=42, root_dir='data/', test_only=False, train_only=False, augment=True, degree=0):
     if dataset == 'mnist' and degree != 0:

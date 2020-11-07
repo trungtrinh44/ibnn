@@ -182,17 +182,17 @@ if __name__ == "__main__":
     model = get_model_from_config(config)
     model.load_state_dict(torch.load(checkpoint, map_location=device))
     model.to(device)
-    if config['model_name'].startswith('Det'):
+    if model.__class__.__name__.startswith('Det'):
         if args.dropout:
             y_prob_all, y_prob, y_true, acc, tnll, nll_miss = test_dropout(model, test_loader, device, args.num_samples)
         else:
             y_prob, y_true, acc, tnll, nll_miss = test_model_deterministic(model, test_loader, device)
-    elif config['model_name'].startswith('Sto'):
+    elif model.__class__.__name__.startswith('Sto'):
         y_prob_all, y_prob, y_true, acc, tnll, nll_miss = test_stochastic(model, test_loader, device, args.num_samples)
-    elif config['model_name'].startswith('Bayesian'):
+    elif model.__class__.__name__.startswith('Bayesian'):
         y_prob_all, y_prob, y_true, acc, tnll, nll_miss = test_bayesian(model, test_loader, device, args.num_samples)
     pred_entropy = entropy(y_prob, axis=1)
-    np.save(os.path.join(args.root, f'{"dropout_" if args.dropout else ""}pred_entropy.npy'), pred_entropy)
+    np.save(os.path.join(args.root, f'{"dropout_" if args.dropout else ""}predictions.npy'), y_prob)
     ece = ECELoss(args.ece_bins)
     ece_val = ece(torch.from_numpy(y_prob), torch.from_numpy(y_true)).item()
     result = {

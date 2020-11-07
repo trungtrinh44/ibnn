@@ -189,9 +189,11 @@ def train(gpu, args):
     if rank == 0:
         print(f"Train size: {len(train_loader.dataset)}, test size: {len(test_loader.dataset)}")
     n_batch = len(train_loader)
+    print(f"Train size: {len(train_loader)}, test size: {len(test_loader)}")
     torch.manual_seed(args.seed)
     torch.cuda.set_device(gpu)
     model, optimizer, scheduler = get_model(args, gpu)
+    torch.manual_seed(args.seed + rank*123)
     if rank == 0:
 #         count_parameters(model, logger)
         print(str(model))
@@ -213,7 +215,7 @@ def train(gpu, args):
                 print("VB Epoch %d: loglike: %.4f, kl: %.4f, kl weight: %.4f, lr1: %.4f, lr2: %.4f" % (i, loglike.item(), kl.item(), klw, optimizer.param_groups[0]['lr'], optimizer.param_groups[1]['lr']))
             if (i+1) % args.test_freq == 0:
                 if rank == 0:
-                    torch.save(model.state_dict(), checkpoint_dir)
+                    torch.save(model.module.state_dict(), checkpoint_dir)
                     print('Save checkpoint')
                 with torch.no_grad():
                     nll, acc = test_nll(model, test_loader, args.num_sample['test'])
@@ -221,7 +223,7 @@ def train(gpu, args):
                     print("VB Epoch %d: test NLL %.4f, acc %.4f" % (i, nll, acc))
                 model.train()
         if rank == 0:
-            torch.save(model.state_dict(), checkpoint_dir)
+            torch.save(model.module.state_dict(), checkpoint_dir)
             print('Save checkpoint')
         tnll = 0
         acc = 0
@@ -232,10 +234,10 @@ def train(gpu, args):
                 bx = bx.cuda(non_blocking=True)
                 by = by.cuda(non_blocking=True)
                 indices = torch.empty(bx.size(0)*args.num_sample['test'], dtype=torch.long, device=bx.device)
-                prob = torch.cat([model(bx, args.num_sample['test'], indices=torch.full((bx.size(0)*args.num_sample['test'],), idx, out=indices, device=bx.device, dtype=torch.long)) for idx in range(model.n_components)], dim=1)
+                prob = torch.cat([model(bx, args.num_sample['test'], indices=torch.full((bx.size(0)*args.num_sample['test'],), idx, out=indices, device=bx.device, dtype=torch.long)) for idx in range(model.module.n_components)], dim=1)
                 y_target = by.unsqueeze(1).expand(-1, args.num_sample['test']*model.n_components)
                 bnll = D.Categorical(logits=prob).log_prob(y_target)
-                bnll = torch.logsumexp(bnll, dim=1) - torch.log(torch.tensor(args.num_sample['test']*model.n_components, dtype=torch.float32, device=bnll.device))
+                bnll = torch.logsumexp(bnll, dim=1) - torch.log(torch.tensor(args.num_sample['test']*model.module.n_components, dtype=torch.float32, device=bnll.device))
                 tnll -= bnll.sum().item()
                 vote = prob.exp().mean(dim=1)
                 pred = vote.argmax(dim=1)

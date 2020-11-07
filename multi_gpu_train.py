@@ -98,7 +98,8 @@ def main():
     elif args.dataset == 'cifar10' or args.dataset == 'vgg_cifar10':
         args.num_classes = 10
     args.world_size = args.gpus * args.nodes
-    args.total_batch_size = args.batch_size['train'] * args.world_size
+    args.total_batch_size = args.batch_size['train']
+    args.batch_size['train'] //=  args.world_size
     os.environ['MASTER_ADDR'] = 'localhost'
     os.environ['MASTER_PORT'] = '8888'
     if args.nr == 0:

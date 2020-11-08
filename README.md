@@ -113,12 +113,14 @@ python multi_gpu_train.py --seed <SEED> --model StoWideResNet28x10 --kl_weight "
 After training, folder `<ROOT_DIR>` will have 3 files: `checkpoint.pt`, `config.json` and `train.log`.
 Table belows compares the runtime between experiments with different number of GPUs:
 
-| Model | Dataset   | #components | GPU               | Runtime | Test NLL | Tess accuracy (%) |
-|-------|-----------|-------------|-------------------|---------|----------|-------------------|
-| VGG16 | CIFAR-100 | 48          | 1xTesla V100 32gb | 4h28m   | 0.9378   | 75.57             |
-| VGG16 | CIFAR-100 | 48          | 2xTesla V100 32gb | 2h44m   | 0.9302   | 75.15             |
-| VGG16 | CIFAR-100 | 48          | 4xTesla P100 16gb | 3h03m   | 0.9444   | 75.47             |
-| VGG16 | CIFAR-100 | 64          | 4xTesla V100 32gb | 2h58m   | 0.9278   | 75.40             |
+| Model           | Dataset   | #components | GPU               | Runtime | Test NLL | Tess accuracy (%) |
+|-----------------|-----------|-------------|-------------------|---------|----------|-------------------|
+| VGG16           | CIFAR-100 | 48          | 1xTesla V100 32gb | 4h28m   | 0.9378   | 75.57             |
+| VGG16           | CIFAR-100 | 48          | 2xTesla V100 32gb | 2h44m   | 0.9302   | 75.15             |
+| VGG16           | CIFAR-100 | 48          | 4xTesla P100 16gb | 3h03m   | 0.9444   | 75.47             |
+| VGG16           | CIFAR-100 | 64          | 4xTesla V100 32gb | 2h58m   | 0.9278   | 75.40             |
+| WideResNet28x10 | CIFAR-100 | 32          | 1xTesla V100 32gb | 33h33m  | 0.6298   | 83.02             |
+| WideResNet28x10 | CIFAR-100 | 32          | 2xTesla V100 32gb | 19h55m  | 0.6261   | 82.99             |
 
 We can see that using more GPUs allow us to shorten the runtime while maintaining the model performance within a certain range (the difference in performance is due to the randomness during training.)
 

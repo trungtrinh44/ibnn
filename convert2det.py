@@ -10,7 +10,7 @@ from sklearn.metrics import confusion_matrix
 
 from datasets import get_data_loader
 from models import ECELoss, get_model_from_config, StoLayer
-
+import pandas as pd
 
 def test_model_deterministic(model, dataloader, device):
     tnll = 0
@@ -60,6 +60,7 @@ def main(args):
     det_model = get_model_from_config(det_config)
     test_loader = get_data_loader(config['dataset'], args.batch_size, test_only=True)
     ece = ECELoss(args.ece_bins)
+    results = []
     for index in ['ones', 'mean'] + list(range(config['n_components'])):
         det_model = StoLayer.convert_deterministic(model, index, det_model)
         torch.save(det_model.state_dict(), os.path.join(args.root, f'checkpoint_{index}.pt'))
@@ -67,6 +68,7 @@ def main(args):
         pred_entropy = entropy(y_prob, axis=1)
         ece_val = ece(torch.from_numpy(y_prob), torch.from_numpy(y_true)).item()
         result = {
+            'checkpoint': index,
             'nll': float(tnll),
             'nll_miss': float(nll_miss),
             'ece': float(ece_val),
@@ -78,8 +80,9 @@ def main(args):
                 f"top-{k}": float(a) for k, a in enumerate(acc, 1)
             }
         }
-        with open(os.path.join(args.root, f'result_{index}.json'), 'w') as out:
-            json.dump(result, out)
+        results.append(result)
+    results = pd.DataFrame(results)
+    results.to_csv(os.path.join(args.root, 'results.csv'), index=False)
 
 if __name__ == "__main__":
     torch.set_grad_enabled(False)

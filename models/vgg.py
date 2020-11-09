@@ -28,7 +28,7 @@ def make_layers(cfg, batch_norm=False):
             else:
                 layers += [conv2d, nn.ReLU(inplace=True)]
             in_channels = v
-    return nn.Sequential(*layers)
+    return nn.ModuleList(layers)
 
 def make_sto_layers(cfg, batch_norm=False, n_components=2, prior_mean=1.0, prior_std=1.0, posterior_mean_init=(1.0, 0.75), posterior_std_init=(0.05, 0.02)):
     layers = list()
@@ -112,7 +112,7 @@ class VGG(nn.Module):
     def __init__(self, num_classes=10, depth=16, batch_norm=False):
         super(VGG, self).__init__()
         self.features = make_layers(cfg[depth], batch_norm)
-        self.classifier = nn.Sequential(
+        self.classifier = nn.ModuleList([
             nn.Dropout(),
             nn.Linear(512, 512),
             nn.ReLU(True),
@@ -120,7 +120,7 @@ class VGG(nn.Module):
             nn.Linear(512, 512),
             nn.ReLU(True),
             nn.Linear(512, num_classes),
-        )
+        ])
 
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
@@ -129,9 +129,11 @@ class VGG(nn.Module):
                 m.bias.data.zero_()
 
     def forward(self, x):
-        x = self.features(x)
+        for layer in self.features:
+            x = layer(x)
         x = x.view(x.size(0), -1)
-        x = self.classifier(x)
+        for layer in self.classifier:
+            x = layer(x)
         x = F.log_softmax(x, dim=-1)
         return x
 

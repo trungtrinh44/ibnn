@@ -7,7 +7,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from prettytable import PrettyTable
 from torch.nn.modules.utils import _pair
-
+from copy import deepcopy
 
 def count_parameters(model, logger):
     table = PrettyTable(["Modules", "Parameters", "Trainable?"])
@@ -21,6 +21,27 @@ def count_parameters(model, logger):
     return total_params
 
 class StoLayer(object):
+    @classmethod
+    def convert_deterministic(cls, module, index, det_module=None):
+        module_output = module if det_module is None else det_module
+        if isinstance(module, StoLayer):
+            module_output = module.to_det_module(index)
+        for name, child in module.named_children():
+            module_output.add_module(name, cls.convert_deterministic(deepcopy(child), index))
+        del module
+        return module_output
+    
+    @staticmethod
+    def get_mask(mean, index):
+        if index == 'ones':
+            return torch.ones(mean.shape[1:], device=mean.device)
+        if index == 'mean':
+            return mean.mean(dim=0)
+        return mean[index]
+    
+    def to_det_module(self, index):
+        raise NotImplementedError()
+
     def sto_init(self, in_features, n_components, prior_mean, prior_std, posterior_mean_init=(1.0, 0.5), posterior_std_init=(0.05, 0.02)):
         # [1, In, 1, 1]
         self.posterior_U_mean = nn.Parameter(torch.ones((n_components, *in_features)), requires_grad=True)
@@ -97,6 +118,15 @@ class StoConv2d(nn.Conv2d, StoLayer):
         if self.bias is not None:
             x = self.add_bias(x, indices)
         return x
+    
+    def to_det_module(self, index):
+        new_module = nn.Conv2d(self.in_channels, self.out_channels, self.kernel_size, self.stride, self.padding, self.dilation, self.groups, self.bias is not None, self.padding_mode)
+        U_mask = StoLayer.get_mask(self.posterior_U_mean, index)
+        new_module.weight.data = self.weight.data * U_mask
+        if self.bias is not None:
+            B_mask = StoLayer.get_mask(self.posterior_B_mean, index).squeeze()
+            new_module.bias.data = self.bias.data * B_mask
+        return new_module
 
     def extra_repr(self):
         return f"{super(StoConv2d, self).extra_repr()}, {self.sto_extra_repr()}"
@@ -115,6 +145,15 @@ class StoLinear(nn.Linear, StoLayer):
         if self.bias is not None:
             x = self.add_bias(x, indices)
         return x
+
+    def to_det_module(self, index):
+        new_module = nn.Linear(self.in_features, self.out_features, self.bias is not None)
+        U_mask = StoLayer.get_mask(self.posterior_U_mean, index)
+        new_module.weight.data = self.weight.data * U_mask
+        if self.bias is not None:
+            B_mask = StoLayer.get_mask(self.posterior_B_mean, index).squeeze()
+            new_module.bias.data = self.bias.data * B_mask
+        return new_module
 
     def extra_repr(self):
         return f"{super(StoLinear, self).extra_repr()}, {self.sto_extra_repr()}"

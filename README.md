@@ -6,6 +6,8 @@ Official Pytorch implementation of the implicit BNN model from the paper
 
 by Trung Trinh, Samuel Kaski, Markus Heinonen
 
+![](plots/vgg_pca.jpg)
+
 ## Installation
 
 ```bash

@@ -20,16 +20,31 @@ def count_parameters(model, logger):
     logger.info(f"Total Trainable Params: {total_params}")
     return total_params
 
+def recursive_traverse(module, layers):
+    children = list(module.children())
+    if len(children) > 0:
+        for child in children:
+            recursive_traverse(child, layers)
+    else:
+        layers.append(module)
+
 class StoLayer(object):
     @classmethod
-    def convert_deterministic(cls, module, index, det_module=None):
-        module_output = module if det_module is None else det_module
-        if isinstance(module, StoLayer):
-            module_output = module.to_det_module(index)
-        for name, child in module.named_children():
-            module_output.add_module(name, cls.convert_deterministic(deepcopy(child), index))
-        del module
-        return module_output
+    def convert_deterministic(cls, sto_model, index, det_model):
+        param_tensors = []
+        buffer_tensors = []
+        layers = []
+        recursive_traverse(sto_model, layers)
+        for module in layers:
+            if isinstance(module, StoLayer):
+                module = module.to_det_module(index)
+            param_tensors.extend(module.parameters())
+            buffer_tensors.extend(module.buffers())
+        for p1, p2 in zip(det_model.parameters(), param_tensors):
+            p1.data = p2.data
+        for p1, p2 in zip(det_model.buffers(), buffer_tensors):
+            p1.data = p2.data
+        return det_model
     
     @staticmethod
     def get_mask(mean, index):

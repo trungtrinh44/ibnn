@@ -72,7 +72,8 @@ class StoLayer(object):
         posterior_mean = self.posterior_U_mean.view((n_components, -1))
         if self.bias is not None:
             posterior_mean = torch.hstack([posterior_mean, self.posterior_B_mean.view((n_components, -1))])
-        posterior_mean = posterior_mean - 1.0
+        posterior_mean = posterior_mean - posterior_mean.mean(dim=0, keepdims=True)
+        posterior_mean = posterior_mean / torch.norm(posterior_mean, dim=0, keepdim=True)
         A = posterior_mean @ posterior_mean.T
         A = A - torch.eye(n_components, device=A.device)
         return find_singular_value(A, 2)

@@ -195,6 +195,9 @@ class StoWideResNet(nn.Module):
     
     def kl(self):
         return sum(m.kl() for m in self.sto_modules)
+    
+    def spectral_norm(self):
+        return sum(m.spectral_regularizer() for m in self.sto_modules)
 
     def vb_loss(self, x, y, n_sample):
         y = y.unsqueeze(1).expand(-1, n_sample)

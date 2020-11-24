@@ -78,6 +78,7 @@ def my_config():
         device = 'cpu'
     posterior_mean_init = (1.0, 0.5) # Mean and std to init the component means in the posterior
     posterior_std_init = (0.05, 0.02) # Mean and std to init the component stds in the posterior
+    spectral_reg = 1e-3
     dataset = 'cifar100' # Dataset of the experiment
     if dataset == 'cifar100' or dataset == 'vgg_cifar100':
         num_classes = 100
@@ -206,7 +207,7 @@ def test_nll(model, loader, device, num_test_sample):
 
 
 @ex.automain
-def main(_run, model_name, num_train_sample, num_test_sample, device, validation, validate_freq, num_epochs, logging_freq):
+def main(_run, model_name, num_train_sample, num_test_sample, device, validation, validate_freq, num_epochs, logging_freq, spectral_reg):
     logger = get_logger()
     if validation:
         train_loader, valid_loader, test_loader = get_dataloader()
@@ -229,7 +230,7 @@ def main(_run, model_name, num_train_sample, num_test_sample, device, validation
                 optimizer.zero_grad()
                 loglike, kl = model.vb_loss(bx, by, num_train_sample)
                 klw = get_kl_weight(epoch=i)
-                loss = loglike + klw*kl/(n_batch*bx.size(0))
+                loss = loglike + klw*kl/(n_batch*bx.size(0)) + spectral_reg*model.spectral_norm()
                 loss.backward()
                 optimizer.step()
                 ex.log_scalar('loglike.train', loglike.item(), i)

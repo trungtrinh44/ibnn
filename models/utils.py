@@ -28,6 +28,16 @@ def recursive_traverse(module, layers):
     else:
         layers.append(module)
 
+def find_singular_value(A, num_iter=2):
+    v = torch.randn(A.size(1), device=A.device)
+    for _ in range(num_iter):
+        v = v/torch.norm(v)
+        u = A @ v
+        u = u/torch.norm(u)
+        v = A @ u
+    return torch.norm(v)
+
+
 class StoLayer(object):
     @classmethod
     def convert_deterministic(cls, sto_model, index, det_model):
@@ -56,6 +66,15 @@ class StoLayer(object):
     
     def to_det_module(self, index):
         raise NotImplementedError()
+
+    def spectral_regularizer(self):
+        n_components = self.posterior_U_mean.size(0)
+        posterior_mean = self.posterior_U_mean.view((n_components, -1))
+        if self.bias is not None:
+            posterior_mean = torch.hstack([posterior_mean, self.posterior_B_mean.view((n_components, -1))])
+        A = posterior_mean @ posterior_mean.T
+        A = A - torch.eye(n_components, device=A.device)
+        return find_singular_value(A, 2)
 
     def sto_init(self, in_features, n_components, prior_mean, prior_std, posterior_mean_init=(1.0, 0.5), posterior_std_init=(0.05, 0.02)):
         # [1, In, 1, 1]

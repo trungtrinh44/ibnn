@@ -76,7 +76,7 @@ class StoLayer(object):
         posterior_mean = posterior_mean / torch.norm(posterior_mean, dim=0, keepdim=True)
         A = posterior_mean @ posterior_mean.T
         A = A - torch.eye(n_components, device=A.device)
-        return find_singular_value(A, 2)
+        return (A*A).mean()
 
     def sto_init(self, in_features, n_components, prior_mean, prior_std, posterior_mean_init=(1.0, 0.5), posterior_std_init=(0.05, 0.02)):
         # [1, In, 1, 1]

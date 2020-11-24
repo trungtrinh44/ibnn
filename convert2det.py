@@ -61,12 +61,14 @@ def main(args):
     test_loader = get_data_loader(config['dataset'], args.batch_size, test_only=True)
     ece = ECELoss(args.ece_bins)
     results = []
+    predictions = []
     for index in ['ones', 'mean'] + list(range(config['n_components'])):
         det_model = StoLayer.convert_deterministic(model, index, det_model)
         torch.save(det_model.state_dict(), os.path.join(args.root, f'checkpoint_{index}.pt'))
         y_prob, y_true, acc, tnll, nll_miss = test_model_deterministic(det_model, test_loader, device)
         pred_entropy = entropy(y_prob, axis=1)
         ece_val = ece(torch.from_numpy(y_prob), torch.from_numpy(y_true)).item()
+        predictions.append(y_prob)
         result = {
             'checkpoint': index,
             'nll': float(tnll),
@@ -83,6 +85,7 @@ def main(args):
         results.append(result)
     results = pd.DataFrame(results)
     results.to_csv(os.path.join(args.root, 'results.csv'), index=False)
+    np.save(os.path.join(args.root, 'preds.npy'), np.array(predictions))
 
 if __name__ == "__main__":
     torch.set_grad_enabled(False)

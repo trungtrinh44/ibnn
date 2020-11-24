@@ -101,7 +101,7 @@ if __name__ == "__main__":
     model = get_model_from_config(config)
     model.load_state_dict(torch.load(checkpoint, map_location=device))
     model.to(device)
-    if config['model_name'].startswith('Det'):
+    if model.__class__.__name__.startswith('Det'):
         if args.dropout:
             probs = np.arange(0.0, 0.55, 0.05, np.float32)
             tm, tv, am, av, em, ev = [], [], [], [], [], []
@@ -153,7 +153,7 @@ if __name__ == "__main__":
             pd.DataFrame({
                 'probs': probs, 'aleatoric_mean': mean, 'aleatoric_std': var
             }).to_csv(os.path.join(args.root, 'gaussian_noise.csv'), index=False)
-    elif config['model_name'].startswith('Sto'):
+    elif model.__class__.__name__.startswith('Sto'):
         probs = np.arange(0.0, 0.55, 0.05, np.float32)
         tm, tv, am, av, em, ev = [], [], [], [], [], []
         for prob in probs:

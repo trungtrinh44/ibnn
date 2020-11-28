@@ -11,8 +11,9 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from .utils import StoLayer, StoLinear, StoConv2d, BayesianConv2d, BayesianLinear, BayesianLayer
+from .radial.variational_bayes import SVIConv2D, SVI_Linear, SVIMaxPool2D, SVI_Base
 
-__all__ = ["DetVGG16", "DetVGG16BN", "DetVGG19", "DetVGG19BN", "StoVGG16", "StoVGG16BN", "StoVGG19", "StoVGG19BN", "BayesianVGG16", "BayesianVGG16BN", "BayesianVGG19", "BayesianVGG19BN"]
+__all__ = ["DetVGG16", "DetVGG16BN", "DetVGG19", "DetVGG19BN", "StoVGG16", "StoVGG16BN", "StoVGG19", "StoVGG19BN", "BayesianVGG16", "BayesianVGG16BN", "BayesianVGG19", "BayesianVGG19BN", "RadialVGG16"]
 
 
 def make_layers(cfg, batch_norm=False):
@@ -60,6 +61,22 @@ def make_bayes_layers(cfg, batch_norm=False, prior_mean=1.0, prior_std=1.0):
                 layers += [conv2d, nn.ReLU(inplace=True)]
             in_channels = v
     return nn.Sequential(*layers)
+
+def make_radial_layers(cfg, batch_norm=False, initial_rho=-1.0, prior={'name': 'gaussian_prior', 'mu': 0.0, 'sigma': 1.0}, variational_distribution='radial'):
+    layers = list()
+    in_channels = 3
+    for v in cfg:
+        if v == "M":
+            layers += [SVIMaxPool2D(kernel_size=(2, 2), stride=(2, 2))]
+        else:
+            conv2d = SVIConv2D(in_channels, v, kernel_size=(3, 3), padding=1, prior=prior, variational_distribution=variational_distribution, initial_rho=initial_rho, mu_std='vgg')
+            if batch_norm:
+                layers += [conv2d, nn.BatchNorm2d(v), nn.ReLU(inplace=True)]
+            else:
+                layers += [conv2d, nn.ReLU(inplace=True)]
+            in_channels = v
+    return nn.Sequential(*layers)
+
 
 cfg = {
     16: [
@@ -180,6 +197,39 @@ class BayesianVGG(nn.Module):
         logp = torch.logsumexp(logp, 1) - torch.log(torch.tensor(n_sample, dtype=torch.float32, device=x.device))
         return -logp.mean(), prob
 
+class RadialVGG(nn.Module):
+    def __init__(self, num_classes=10, depth=16, initial_rho=-1.0, prior={'name': 'gaussian_prior', 'mu': 0.0, 'sigma': 1.0}):
+        super(RadialVGG, self).__init__()
+        self.features = make_radial_layers(cfg[depth], False, initial_rho=initial_rho, prior=prior, variational_distribution='radial')
+        self.classifier = nn.Sequential(
+            SVI_Linear(512, 512, initial_rho=initial_rho, prior=prior, variational_distribution='radial', initial_mu='default'),
+            nn.ReLU(True),
+            SVI_Linear(512, 512, initial_rho=initial_rho, prior=prior, variational_distribution='radial', initial_mu='default'),
+            nn.ReLU(True),
+            SVI_Linear(512, num_classes, initial_rho=initial_rho, prior=prior, variational_distribution='radial', initial_mu='default')
+        )
+
+    def kl(self):
+        return sum((m.cross_entropy() - m.entropy()) for m in self.modules() if isinstance(m, SVI_Base))
+
+    def forward(self, x):
+        x = self.features(x)
+        x = x.view((x.size(0), x.size(1), -1))
+        x = self.classifier(x)
+        return F.log_softmax(x, dim=-1)
+    
+    def vb_loss(self, x, y):
+        y = y.unsqueeze(1).expand(-1, x.size(1))
+        logp = D.Categorical(logits=self.forward(x)).log_prob(y).mean()
+        return -logp, self.kl()
+    
+    def nll(self, x, y):
+        y = y.unsqueeze(1).expand(-1, x.size(1))
+        logits = self.forward(x)
+        logp = D.Categorical(logits=logits).log_prob(y)
+        logp = torch.logsumexp(logp, 1) - torch.log(torch.tensor(x.size(1), dtype=torch.float32, device=x.device))
+        return -logp.mean(), logits
+
 class StoVGG(nn.Module):
     def __init__(self, num_classes=10, depth=16, n_components=2, prior_mean=1.0, prior_std=1.0, posterior_mean_init=(1.0, 0.75), posterior_std_init=(0.05, 0.02), batch_norm=False):
         super(StoVGG, self).__init__()
@@ -296,3 +346,7 @@ class BayesianVGG19(BayesianVGG):
 class BayesianVGG19BN(BayesianVGG):
     def __init__(self, num_classes, prior_mean, prior_std):
         super(BayesianVGG19BN, self).__init__(num_classes, 19, prior_mean, prior_std, True)
+
+class RadialVGG16(RadialVGG):
+    def __init__(self, num_classes, initial_rho=-1.0, prior={'name': 'gaussian_prior', 'mu': 0.0, 'sigma': 1.0}):
+        super(RadialVGG16, self).__init__(num_classes, 16, initial_rho=initial_rho, prior=prior)

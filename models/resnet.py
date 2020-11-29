@@ -12,8 +12,9 @@ import torch.distributions as D
 import torch.nn.init as init
 
 from .utils import StoLayer, StoLinear, StoConv2d, BayesianLayer, BayesianConv2d, BayesianLinear
+from .radial.variational_bayes import SVIConv2D, SVI_Linear, SVIMaxPool2D, SVI_Base, SVIGlobalMeanPool2D
 
-__all__ = ["DetWideResNet28x10", "StoWideResNet28x10", "BayesianWideResNet28x10"]
+__all__ = ["DetWideResNet28x10", "StoWideResNet28x10", "BayesianWideResNet28x10", "RadialWideResNet28x10"]
 
 
 def conv3x3(in_planes, out_planes, stride=1):
@@ -73,6 +74,30 @@ class BayesianWideBasic(nn.Module):
     def forward(self, x):
         out = self.conv1(F.relu(self.bn1(x), inplace=True))
         out = self.conv2(F.relu(self.bn2(out), inplace=True))
+        out += self.shortcut(x)
+
+        return out
+
+class RadialWideBasic(nn.Module):
+    def __init__(self, in_planes, planes, stride, initial_rho, prior):
+        super(RadialWideBasic, self).__init__()
+        self.bn1 = nn.BatchNorm2d(in_planes)
+        self.conv1 = SVIConv2D(in_planes, planes, kernel_size=(3, 3), padding=1, prior=prior, variational_distribution='radial', initial_rho=initial_rho, mu_std='default')
+        self.bn2 = nn.BatchNorm2d(planes)
+        self.conv2 = SVIConv2D(planes, planes, kernel_size=(3, 3), stride=(stride, stride), padding=1, prior=prior, variational_distribution='radial', initial_rho=initial_rho, mu_std='default')
+
+        if stride != 1 or in_planes != planes:
+            self.shortcut = SVIConv2D(in_planes, planes, kernel_size=(1, 1), stride=(stride, stride), prior=prior, variational_distribution='radial', initial_rho=initial_rho, mu_std='default')
+        else:
+            self.shortcut = nn.Identity()
+
+    def forward(self, x):
+        bs, ns, c, h, w = x.size()
+        out = self.bn1(x.reshape(-1, c, h, w)).reshape(bs, ns, c, h, w)
+        out = self.conv1(F.relu(out, inplace=True))
+        bs, ns, c, h, w = out.size()
+        out = self.bn2(out.reshape(-1, c, h, w)).reshape(bs, ns, c, h, w)
+        out = self.conv2(F.relu(out, inplace=True))
         out += self.shortcut(x)
 
         return out
@@ -265,6 +290,65 @@ class BayesianWideResNet(nn.Module):
         logp = torch.logsumexp(logp, 1) - torch.log(torch.tensor(n_sample, dtype=torch.float32, device=x.device))
         return -logp.mean(), prob
 
+class RadialWideResNet(nn.Module):
+    def __init__(self, num_classes=10, depth=28, widen_factor=10, initial_rho=-1.0, prior={'name': 'gaussian_prior', 'mu': 0.0, 'sigma': 1.0}):
+        super(RadialWideResNet, self).__init__()
+        self.in_planes = 16
+
+        assert (depth - 4) % 6 == 0, "Wide-resnet depth should be 6n+4"
+        n = (depth - 4) / 6
+        k = widen_factor
+
+        nstages = [16, 16 * k, 32 * k, 64 * k]
+
+        self.conv1 = SVIConv2D(3, nstages[0], kernel_size=(3, 3), stride=(1, 1), padding=1, bias=True, initial_rho=initial_rho, prior=prior, variational_distribution='radial', mu_std='default')
+        self.layer1 = self._wide_layer(RadialWideBasic, nstages[1], n, initial_rho, prior, stride=1)
+        self.layer2 = self._wide_layer(RadialWideBasic, nstages[2], n, initial_rho, prior, stride=2)
+        self.layer3 = self._wide_layer(RadialWideBasic, nstages[3], n, initial_rho, prior, stride=2)
+        self.avg_pool = SVIGlobalMeanPool2D()
+        self.bn1 = nn.BatchNorm2d(nstages[3], momentum=0.9)
+        self.linear = SVI_Linear(nstages[3], num_classes, use_bias=True, initial_rho=initial_rho, prior=prior, variational_distribution='radial', initial_mu='default')
+
+    def _wide_layer(self, block, planes, num_blocks, initial_rho, prior, stride):
+        strides = [stride] + [1] * int(num_blocks - 1)
+        layers = []
+
+        for stride in strides:
+            layers.append(block(self.in_planes, planes, stride, initial_rho, prior))
+            self.in_planes = planes
+
+        return nn.Sequential(*layers)
+
+    def forward(self, x):
+        out = self.conv1(x)
+        out = self.layer1(out)
+        out = self.layer2(out)
+        out = self.layer3(out)
+        bs, ns, c, h, w = out.size()
+        out = self.bn1(out.reshape(-1, c, h, w)).reshape(bs, ns, c, h, w)
+        out = F.relu(out, inplace=True)
+        out = self.avg_pool(out)
+        out = F.log_softmax(self.linear(out), -1)
+
+        return out
+    
+    def kl(self):
+        return sum((m.cross_entropy() - m.entropy()) for m in self.modules() if isinstance(m, SVI_Base))
+
+    def vb_loss(self, x, y, n_sample):
+        x = x.unsqueeze(1).expand(-1, n_sample, -1, -1, -1)
+        y = y.unsqueeze(1).expand(-1, n_sample)
+        logp = D.Categorical(logits=self.forward(x)).log_prob(y).mean()
+        return -logp, self.kl()
+    
+    def nll(self, x, y, n_sample):
+        x = x.unsqueeze(1).expand(-1, n_sample, -1, -1, -1)
+        y = y.unsqueeze(1).expand(-1, n_sample)
+        logits = self.forward(x)
+        logp = D.Categorical(logits=logits).log_prob(y)
+        logp = torch.logsumexp(logp, 1) - torch.log(torch.tensor(n_sample, dtype=torch.float32, device=x.device))
+        return -logp.mean(), logits
+
 
 class DetWideResNet28x10(DetWideResNet):
     def __init__(self, num_classes=10, dropout_rate=0.0):
@@ -277,3 +361,7 @@ class StoWideResNet28x10(StoWideResNet):
 class BayesianWideResNet28x10(BayesianWideResNet):
     def __init__(self, num_classes=10, prior_mean=0.0, prior_std=1.0):
         super(BayesianWideResNet28x10, self).__init__(num_classes, depth=28, widen_factor=10, prior_mean=prior_mean, prior_std=prior_std)
+
+class RadialWideResNet28x10(RadialWideResNet):
+    def __init__(self, num_classes=10, initial_rho=-1.0, prior={'name': 'gaussian_prior', 'mu': 0.0, 'sigma': 1.0}):
+        super(RadialWideResNet28x10, self).__init__(num_classes, depth=28, widen_factor=10, initial_rho=initial_rho, prior=prior)

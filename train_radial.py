@@ -11,7 +11,7 @@ from sacred import Experiment
 from sacred.observers import FileStorageObserver, RunObserver
 
 from datasets import get_data_loader, infinite_wrapper
-from models import RadialVGG16, count_parameters
+from models import RadialVGG16, RadialWideResNet28x10, count_parameters
 
 torch.backends.cudnn.benchmark = True
 torch.backends.cudnn.deterministic = False
@@ -96,8 +96,10 @@ def schedule(num_epochs, epoch, milestones, lr_ratio):
 def get_model(model_name, num_classes, prior, initial_rho, device, optimizer, num_epochs, milestones, lr_ratio_det):
     if model_name == 'RadialVGG16':
         model = RadialVGG16(num_classes, prior=prior, initial_rho=initial_rho)
-        optim = getattr(torch.optim, optimizer['name'])(model.parameters(), **optimizer['args'])
-        scheduler = torch.optim.lr_scheduler.LambdaLR(optim, lambda e: schedule(num_epochs, e, milestones, lr_ratio_det))
+    elif model_name == 'RadialWideResNet28x10':
+        model = RadialWideResNet28x10(num_classes, prior=prior, initial_rho=initial_rho)
+    optim = getattr(torch.optim, optimizer['name'])(model.parameters(), **optimizer['args'])
+    scheduler = torch.optim.lr_scheduler.LambdaLR(optim, lambda e: schedule(num_epochs, e, milestones, lr_ratio_det))
     model.to(device)
     return model, optim, scheduler
 

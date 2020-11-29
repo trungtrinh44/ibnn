@@ -255,6 +255,14 @@ class _SVIConvNd(SVI_Base):
             self.bias_mus.data.zero_()
             self.bias_rhos.data.normal_(initial_rho, std=0.5)
             return
+        elif mu_std == 'default':
+            nn.init.kaiming_uniform_(self.weight_mus, a=math.sqrt(5))
+            if self.bias is not None:
+                fan_in, _ = nn.init._calculate_fan_in_and_fan_out(self.weight_mus)
+                bound = 1 / math.sqrt(fan_in)
+                nn.init.uniform_(self.bias_mus, -bound, bound)
+                self.bias_rhos.data.normal_(initial_rho, std=0.5)
+            return
         elif mu_std == 'he':
             # Using pytorch's recommendation for Leaky Relu :math:`\sqrt{\frac{2}{1 + \text{negative\_slope}^2}}`
             torch.nn.init.kaiming_uniform_(self.weight_mus, math.sqrt(1.92))

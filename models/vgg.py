@@ -218,16 +218,18 @@ class RadialVGG(nn.Module):
         x = self.classifier(x)
         return F.log_softmax(x, dim=-1)
     
-    def vb_loss(self, x, y):
-        y = y.unsqueeze(1).expand(-1, x.size(1))
+    def vb_loss(self, x, y, n_sample):
+        x = x.unsqueeze(1).expand(-1, n_sample, -1, -1, -1)
+        y = y.unsqueeze(1).expand(-1, n_sample)
         logp = D.Categorical(logits=self.forward(x)).log_prob(y).mean()
         return -logp, self.kl()
     
-    def nll(self, x, y):
-        y = y.unsqueeze(1).expand(-1, x.size(1))
+    def nll(self, x, y, n_sample):
+        x = x.unsqueeze(1).expand(-1, n_sample, -1, -1, -1)
+        y = y.unsqueeze(1).expand(-1, n_sample)
         logits = self.forward(x)
         logp = D.Categorical(logits=logits).log_prob(y)
-        logp = torch.logsumexp(logp, 1) - torch.log(torch.tensor(x.size(1), dtype=torch.float32, device=x.device))
+        logp = torch.logsumexp(logp, 1) - torch.log(torch.tensor(n_sample, dtype=torch.float32, device=x.device))
         return -logp.mean(), logits
 
 class StoVGG(nn.Module):

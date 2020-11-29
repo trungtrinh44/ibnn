@@ -96,8 +96,8 @@ def schedule(num_epochs, epoch, milestones, lr_ratio):
 def get_model(model_name, num_classes, prior, initial_rho, device, optimizer, num_epochs, milestones, lr_ratio_det):
     if model_name == 'RadialVGG16':
         model = RadialVGG16(num_classes, prior=prior, initial_rho=initial_rho)
-        scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, [lambda e: schedule(num_epochs, e, milestones, lr_ratio_det)])
         optim = getattr(torch.optim, optimizer['name'])(model.parameters(), **optimizer['args'])
+        scheduler = torch.optim.lr_scheduler.LambdaLR(optim, lambda e: schedule(num_epochs, e, milestones, lr_ratio_det))
     model.to(device)
     return model, optim, scheduler
 

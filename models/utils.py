@@ -101,12 +101,24 @@ class StoLayer(object):
     def kl(self):
         return self._kl(self.posterior_U_mean, self.posterior_U_std) + (0 if self.bias is None else self._kl(self.posterior_B_mean, self.posterior_B_std))
     
+    def neg_entropy_ub(self, pos_mean, pos_std):
+        # Upper bound of the negative posterior entropy
+        var = pos_std.square()
+        std = (var.unsqueeze(0) + var.unsqueeze(1)).sqrt()
+        norm = D.Normal(pos_mean.unsqueeze(0), std)
+        lp = norm.log_prob(pos_mean.unsqueeze(1))
+        ub = torch.logsumexp(lp, dim=1).mean(dim=0) - torch.log(torch.tensor(pos_mean.size(0), dtype=torch.float32, device=pos_mean.device))
+        return ub.sum()
+    
+    def cross_entropy(self, m1, s1):
+        m2 = self.prior_mean
+        s2 = self.prior_std
+        res = 0.5*(torch.log(2*np.pi*s2*s2) + ((m1-m2)**2+s1**2)/s2**2)
+        return res.mean(0).sum()
+    
     def _kl(self, pos_mean, pos_std):
-        mean = pos_mean.mean(dim=0)
-        std = F.softplus(pos_std).pow(2.0).sum(0).pow(0.5) / pos_std.size(0)
-        components = D.Normal(mean, std)
-        prior = D.Normal(self.prior_mean, self.prior_std)
-        return D.kl_divergence(components, prior).sum()
+        pos_std = F.softplus(pos_std)
+        return self.cross_entropy(pos_mean, pos_std) + self.neg_entropy_ub(pos_mean, pos_std)
     
     def sto_extra_repr(self):
         return f"n_components={self.posterior_U_mean.size(0)}, prior_mean={self.prior_mean.data.item()}, prior_std={self.prior_std.data.item()}, posterior_mean_init={self.posterior_mean_init}, posterior_std_init={self.posterior_std_init}"

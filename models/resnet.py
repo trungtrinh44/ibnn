@@ -81,14 +81,14 @@ class StoWideBasic(nn.Module):
     def __dummy_shortcut(self, x, i):
         return x
 
-    def __init__(self, in_planes, planes, stride, n_components, prior_mean, prior_std):
+    def __init__(self, in_planes, planes, stride, n_components, prior_mean, prior_std, posterior_mean_init, posterior_std_init):
         super(StoWideBasic, self).__init__()
         self.bn1 = nn.BatchNorm2d(in_planes)
-        self.conv1 = StoConv2d(in_planes, planes, kernel_size=3, padding=1, bias=True, n_components=n_components, prior_mean=prior_mean, prior_std=prior_std)
+        self.conv1 = StoConv2d(in_planes, planes, kernel_size=3, padding=1, bias=True, n_components=n_components, prior_mean=prior_mean, prior_std=prior_std, posterior_mean_init=posterior_mean_init, posterior_std_init=posterior_std_init)
         self.bn2 = nn.BatchNorm2d(planes)
-        self.conv2 = StoConv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=True, n_components=n_components, prior_mean=prior_mean, prior_std=prior_std)
+        self.conv2 = StoConv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=True, n_components=n_components, prior_mean=prior_mean, prior_std=prior_std, posterior_mean_init=posterior_mean_init, posterior_std_init=posterior_std_init)
         if stride != 1 or in_planes != planes:
-            self.shortcut = StoConv2d(in_planes, planes, kernel_size=1, stride=stride, bias=True, n_components=n_components, prior_mean=prior_mean, prior_std=prior_std)
+            self.shortcut = StoConv2d(in_planes, planes, kernel_size=1, stride=stride, bias=True, n_components=n_components, prior_mean=prior_mean, prior_std=prior_std, posterior_mean_init=posterior_mean_init, posterior_std_init=posterior_std_init)
         else:
             self.shortcut = self.__dummy_shortcut
 
@@ -141,7 +141,7 @@ class DetWideResNet(nn.Module):
         return out
 
 class StoWideResNet(nn.Module):
-    def __init__(self, num_classes=10, depth=28, widen_factor=10, n_components=2, prior_mean=1.0, prior_std=1.0):
+    def __init__(self, num_classes=10, depth=28, widen_factor=10, n_components=2, prior_mean=1.0, prior_std=1.0, posterior_mean_init=(1.0, 0.5), posterior_std_init=(0.05, 0.02)):
         super(StoWideResNet, self).__init__()
         self.in_planes = 16
 
@@ -151,23 +151,23 @@ class StoWideResNet(nn.Module):
 
         nstages = [16, 16 * k, 32 * k, 64 * k]
 
-        self.conv1 = StoConv2d(3, nstages[0], kernel_size=3, stride=1, padding=1, bias=True, n_components=n_components, prior_mean=prior_mean, prior_std=prior_std)
-        self.layer1 = self._wide_layer(StoWideBasic, nstages[1], n, n_components, prior_mean, prior_std, stride=1)
-        self.layer2 = self._wide_layer(StoWideBasic, nstages[2], n, n_components, prior_mean, prior_std, stride=2)
-        self.layer3 = self._wide_layer(StoWideBasic, nstages[3], n, n_components, prior_mean, prior_std, stride=2)
+        self.conv1 = StoConv2d(3, nstages[0], kernel_size=3, stride=1, padding=1, bias=True, n_components=n_components, prior_mean=prior_mean, prior_std=prior_std, posterior_mean_init=posterior_mean_init, posterior_std_init=posterior_std_init)
+        self.layer1 = self._wide_layer(StoWideBasic, nstages[1], n, n_components, prior_mean, prior_std, stride=1, posterior_mean_init=posterior_mean_init, posterior_std_init=posterior_std_init)
+        self.layer2 = self._wide_layer(StoWideBasic, nstages[2], n, n_components, prior_mean, prior_std, stride=2, posterior_mean_init=posterior_mean_init, posterior_std_init=posterior_std_init)
+        self.layer3 = self._wide_layer(StoWideBasic, nstages[3], n, n_components, prior_mean, prior_std, stride=2, posterior_mean_init=posterior_mean_init, posterior_std_init=posterior_std_init)
         self.bn1 = nn.BatchNorm2d(nstages[3], momentum=0.9)
-        self.linear = StoLinear(nstages[3], num_classes, n_components=n_components, prior_mean=prior_mean, prior_std=prior_std)
+        self.linear = StoLinear(nstages[3], num_classes, n_components=n_components, prior_mean=prior_mean, prior_std=prior_std, posterior_mean_init=posterior_mean_init, posterior_std_init=posterior_std_init)
         self.n_components = n_components
         self.sto_modules = [
             m for m in self.modules() if isinstance(m, StoLayer)
         ]
 
-    def _wide_layer(self, block, planes, num_blocks, n_components, prior_mean, prior_std, stride):
+    def _wide_layer(self, block, planes, num_blocks, n_components, prior_mean, prior_std, stride, posterior_mean_init, posterior_std_init):
         strides = [stride] + [1] * int(num_blocks - 1)
         layers = []
 
         for stride in strides:
-            layers.append(block(self.in_planes, planes, stride, n_components, prior_mean, prior_std))
+            layers.append(block(self.in_planes, planes, stride, n_components, prior_mean, prior_std, posterior_mean_init=posterior_mean_init, posterior_std_init=posterior_std_init))
             self.in_planes = planes
 
         return nn.ModuleList(layers)
@@ -271,8 +271,8 @@ class DetWideResNet28x10(DetWideResNet):
         super(DetWideResNet28x10, self).__init__(num_classes, depth=28, widen_factor=10, dropout_rate=dropout_rate)
     
 class StoWideResNet28x10(StoWideResNet):
-    def __init__(self, num_classes=10, n_components=2, prior_mean=1.0, prior_std=1.0):
-        super(StoWideResNet28x10, self).__init__(num_classes, depth=28, widen_factor=10, n_components=n_components, prior_mean=prior_mean, prior_std=prior_std)
+    def __init__(self, num_classes=10, n_components=2, prior_mean=1.0, prior_std=1.0, posterior_mean_init=(1.0, 0.5), posterior_std_init=(0.05, 0.02)):
+        super(StoWideResNet28x10, self).__init__(num_classes, depth=28, widen_factor=10, n_components=n_components, prior_mean=prior_mean, prior_std=prior_std, posterior_mean_init=posterior_mean_init, posterior_std_init=posterior_std_init)
 
 class BayesianWideResNet28x10(BayesianWideResNet):
     def __init__(self, num_classes=10, prior_mean=0.0, prior_std=1.0):

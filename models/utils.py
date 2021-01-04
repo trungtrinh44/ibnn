@@ -64,6 +64,8 @@ class StoLayer(object):
         nn.init.normal_(self.posterior_U_std, posterior_std_init[0], posterior_std_init[1])
         nn.init.normal_(self.posterior_U_mean, posterior_mean_init[0], posterior_mean_init[1])
         self.posterior_U_std.data.abs_().expm1_().log_()
+        if self.bias is not None:
+            self.posterior_B_mean = nn.Parameter(torch.ones((n_components, 1)), requires_grad=True)
 
         self.prior_mean = nn.Parameter(torch.tensor(prior_mean), requires_grad=False)
         self.prior_std = nn.Parameter(torch.tensor(prior_std), requires_grad=False)
@@ -99,13 +101,8 @@ class StoConv2d(nn.Conv2d, StoLayer):
         self, in_channels, out_channels, kernel_size, stride = 1, padding = 0, dilation = 1, groups = 1, bias = True, padding_mode = 'zeros',
         n_components=8, prior_mean=1.0, prior_std=0.1, posterior_mean_init=(1.0, 0.5), posterior_std_init=(0.05, 0.02)
     ):
-        super(StoConv2d, self).__init__(in_channels, out_channels, kernel_size, stride, padding, dilation, groups, False, padding_mode)
+        super(StoConv2d, self).__init__(in_channels, out_channels, kernel_size, stride, padding, dilation, groups, True, padding_mode)
         self.sto_init((in_channels, 1, 1), n_components, prior_mean, prior_std, posterior_mean_init, posterior_std_init)
-        if bias:
-            self.bias = nn.Parameter(torch.ones((n_components, out_channels)))
-            fan_in, _ = nn.init._calculate_fan_in_and_fan_out(self.weight)
-            bound = 1 / fan_in**0.5
-            nn.init.uniform_(self.bias, -bound, bound)
 
     def _conv_forward(self, x):
         if self.padding_mode != 'zeros':
@@ -119,7 +116,7 @@ class StoConv2d(nn.Conv2d, StoLayer):
         x = self.mult_noise(x, indices)
         x = self._conv_forward(x)
         if self.bias is not None:
-            x = x + self.bias[indices, :, None, None]
+            x = x + self.bias[None, :, None, None] * self.posterior_B_mean[indices, :, None, None]
         return x
     
     def to_det_module(self, index):
@@ -138,19 +135,14 @@ class StoLinear(nn.Linear, StoLayer):
         self, in_features: int, out_features: int, bias: bool = True,
         n_components=8, prior_mean=1.0, prior_std=0.1, posterior_mean_init=(1.0, 0.5), posterior_std_init=(0.05, 0.02)
     ):
-        super(StoLinear, self).__init__(in_features, out_features, False)
+        super(StoLinear, self).__init__(in_features, out_features, True)
         self.sto_init((in_features, ), n_components, prior_mean, prior_std, posterior_mean_init, posterior_std_init)
-        if bias:
-            self.bias = nn.Parameter(torch.ones((n_components, out_features)))
-            fan_in, _ = nn.init._calculate_fan_in_and_fan_out(self.weight)
-            bound = 1 / fan_in**0.5
-            nn.init.uniform_(self.bias, -bound, bound)
 
     def forward(self, x, indices):
         x = self.mult_noise(x, indices)
         x = F.linear(x, self.weight, None)
         if self.bias is not None:
-            x = x + self.bias[indices, :]
+            x = x + self.bias[None, :] * self.posterior_B_mean[indices, :]
         return x
 
     def to_det_module(self, index):

@@ -65,13 +65,6 @@ class StoLayer(object):
         nn.init.normal_(self.posterior_U_mean, posterior_mean_init[0], posterior_mean_init[1])
         self.posterior_U_std.data.abs_().expm1_().log_()
 
-        if self.bias is not None:
-            self.posterior_B_mean = nn.Parameter(torch.ones((n_components, 1, *in_features[1:])), requires_grad=True)
-            self.posterior_B_std = nn.Parameter(torch.ones((n_components, 1, *in_features[1:])), requires_grad=True)
-            nn.init.normal_(self.posterior_B_std, posterior_std_init[0], posterior_std_init[1])
-            nn.init.normal_(self.posterior_B_mean, posterior_mean_init[0], posterior_mean_init[1])
-            self.posterior_B_std.data.abs_().expm1_().log_()
-
         self.prior_mean = nn.Parameter(torch.tensor(prior_mean), requires_grad=False)
         self.prior_std = nn.Parameter(torch.tensor(prior_std), requires_grad=False)
         self.posterior_mean_init = posterior_mean_init
@@ -84,22 +77,12 @@ class StoLayer(object):
         components = D.Normal(mean[indices], std[indices])
         return components.rsample()
     
-    def get_add_noise(self, input, indices):
-        mean = self.posterior_B_mean
-        std = F.softplus(self.posterior_B_std)
-        components = D.Normal(mean[indices], std[indices])
-        return components.rsample()
-
     def mult_noise(self, x, indices):
         x = x * self.get_mult_noise(x, indices)
         return x
 
-    def add_bias(self, x, indices):
-        x = x + self.bias.view(-1, *self.__aux_dim) * self.get_add_noise(x, indices)
-        return x
-    
     def kl(self):
-        return self._kl(self.posterior_U_mean, self.posterior_U_std) + (0 if self.bias is None else self._kl(self.posterior_B_mean, self.posterior_B_std))
+        return self._kl(self.posterior_U_mean, self.posterior_U_std)
     
     def _kl(self, pos_mean, pos_std):
         mean = pos_mean.mean(dim=0)
@@ -118,20 +101,10 @@ class StoConv2d(nn.Conv2d, StoLayer):
     ):
         super(StoConv2d, self).__init__(in_channels, out_channels, kernel_size, stride, padding, dilation, groups, bias, padding_mode)
         self.sto_init((in_channels, 1, 1), n_components, prior_mean, prior_std, posterior_mean_init, posterior_std_init)
-
-    def _conv_forward(self, x):
-        if self.padding_mode != 'zeros':
-            return F.conv2d(F.pad(x, self._reversed_padding_repeated_twice, mode=self.padding_mode),
-                            self.weight, None, self.stride,
-                            _pair(0), self.dilation, self.groups)
-        return F.conv2d(x, self.weight, None, self.stride,
-                        self.padding, self.dilation, self.groups)
     
     def forward(self, x, indices):
         x = self.mult_noise(x, indices)
-        x = self._conv_forward(x)
-        if self.bias is not None:
-            x = self.add_bias(x, indices)
+        x = super(StoConv2d, self).forward(x)
         return x
     
     def to_det_module(self, index):
@@ -139,8 +112,7 @@ class StoConv2d(nn.Conv2d, StoLayer):
         U_mask = StoLayer.get_mask(self.posterior_U_mean, index)
         new_module.weight.data = self.weight.data * U_mask
         if self.bias is not None:
-            B_mask = StoLayer.get_mask(self.posterior_B_mean, index).squeeze()
-            new_module.bias.data = self.bias.data * B_mask
+            new_module.bias.data = self.bias.data
         return new_module
 
     def extra_repr(self):
@@ -156,9 +128,7 @@ class StoLinear(nn.Linear, StoLayer):
 
     def forward(self, x, indices):
         x = self.mult_noise(x, indices)
-        x = F.linear(x, self.weight, None)
-        if self.bias is not None:
-            x = self.add_bias(x, indices)
+        x = super(StoLinear, self).forward(x)
         return x
 
     def to_det_module(self, index):
@@ -166,8 +136,7 @@ class StoLinear(nn.Linear, StoLayer):
         U_mask = StoLayer.get_mask(self.posterior_U_mean, index)
         new_module.weight.data = self.weight.data * U_mask
         if self.bias is not None:
-            B_mask = StoLayer.get_mask(self.posterior_B_mean, index).squeeze()
-            new_module.bias.data = self.bias.data * B_mask
+            new_module.bias.data = self.bias.data
         return new_module
 
     def extra_repr(self):

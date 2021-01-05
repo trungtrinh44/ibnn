@@ -173,6 +173,43 @@ class StoLinear(nn.Linear, StoLayer):
     def extra_repr(self):
         return f"{super(StoLinear, self).extra_repr()}, {self.sto_extra_repr()}"
 
+class Rank1Layer(object):
+    def rank1_init(self, in_features, out_features, n_components, prior_mean, prior_std, posterior_mean_init=(1.0, 0.5), posterior_std_init=(0.05, 0.02)):
+        self.posterior_in_mean = nn.Parameter(torch.ones((n_components, *in_features)), requires_grad=True)
+        self.posterior_in_std = nn.Parameter(torch.ones((n_components, *in_features)), requires_grad=True)
+        nn.init.normal_(self.posterior_in_std, posterior_std_init[0], posterior_std_init[1])
+        nn.init.normal_(self.posterior_in_mean, posterior_mean_init[0], posterior_mean_init[1])
+        self.posterior_in_std.data.abs_().expm1_().log_()
+
+        self.posterior_out_mean = nn.Parameter(torch.ones((n_components, *out_features)), requires_grad=True)
+        self.posterior_out_std = nn.Parameter(torch.ones((n_components, *out_features)), requires_grad=True)
+        nn.init.normal_(self.posterior_out_std, posterior_std_init[0], posterior_std_init[1])
+        nn.init.normal_(self.posterior_out_mean, posterior_mean_init[0], posterior_mean_init[1])
+        self.posterior_out_std.data.abs_().expm1_().log_()
+
+        self.prior_mean = nn.Parameter(torch.tensor(prior_mean), requires_grad=False)
+        self.prior_std = nn.Parameter(torch.tensor(prior_std), requires_grad=False)
+        self.posterior_mean_init = posterior_mean_init
+        self.posterior_std_init = posterior_std_init
+    
+    def get_mult_noise(self, indices, mean, std):
+        components = D.Normal(mean[indices], std[indices])
+        return components.rsample()
+    
+    def mult_noise(self, x, indices, mean, std):
+        x = x * self.get_mult_noise(indices, mean, std)
+        return x
+
+    def kl(self):
+        return self._kl(self.posterior_in_mean, self.posterior_in_std) + self._kl(self.posterior_out_mean, self.posterior_out_std)
+    
+    def _kl(self, pos_mean, pos_std):
+        mean = pos_mean
+        std = F.softplus(pos_std)
+        components = D.Normal(mean, std)
+        prior = D.Normal(self.prior_mean, self.prior_std)
+        return D.kl_divergence(components, prior).sum()
+
 class BayesianLayer(object):
     pass
 

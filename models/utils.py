@@ -102,9 +102,9 @@ class StoLayer(object):
         return self._kl(self.posterior_U_mean, self.posterior_U_std) + (0 if self.bias is None else self._kl(self.posterior_B_mean, self.posterior_B_std))
     
     def _kl(self, pos_mean, pos_std):
-        mean = pos_mean.mean(dim=0)
-        std = F.softplus(pos_std).pow(2.0).sum(0).pow(0.5) / pos_std.size(0)
-        components = D.Normal(mean, std)
+        loc = pos_mean
+        scale = F.softplus(pos_std)
+        components = D.Normal(loc, scale)
         prior = D.Normal(self.prior_mean, self.prior_std)
         return D.kl_divergence(components, prior).sum()
     

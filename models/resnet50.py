@@ -2,6 +2,7 @@ import torch
 from torch import Tensor
 import torch.nn as nn
 import torch.nn.functional as F
+import torch.distributions as D
 from typing import Type, Any, Callable, Union, List, Optional
 from .utils import StoLayer, StoConv2d, StoLinear
 from torch.utils.model_zoo import load_url as load_state_dict_from_url

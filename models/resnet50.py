@@ -308,7 +308,7 @@ def _resnet(
     if pretrained:
         state_dict = load_state_dict_from_url(model_urls[arch],
                                               progress=progress)
-        model.load_state_dict(state_dict, strict=True)
+        model.load_state_dict(state_dict, strict=False)
     return model
 
 def resnet50(deterministic_pretrained: bool = False, progress: bool = True, **kwargs: Any) -> StoResNet:

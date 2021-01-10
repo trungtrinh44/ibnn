@@ -312,6 +312,10 @@ class ECELoss(nn.Module):
 
         return ece
 
+def _check_bn(module, flag):
+    if issubclass(module.__class__, torch.nn.modules.batchnorm._BatchNorm):
+        flag[0] = True
+    
 def check_bn(model):
     flag = [False]
     model.apply(lambda module: _check_bn(module, flag))
@@ -366,5 +370,6 @@ def bn_update(loader, model, num_replica, subset=None, **kwargs):
 
             model(input_var, L=num_replica, **kwargs)
             n += b
+            print(n)
 
     model.apply(lambda module: _set_momenta(module, momenta))

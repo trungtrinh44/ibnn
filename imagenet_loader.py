@@ -31,7 +31,21 @@ class ImageFolderLMDB(data.Dataset):
 
         self.transform = transform
         self.target_transform = target_transform
-
+    
+    def __getstate__(self):
+        d = dict(self.__dict__)
+        del d['env']
+        return d
+    
+    def __setstate__(self, d):
+        self.__dict__.update(d)
+        self.env = lmdb.open(self.db_path, subdir=osp.isdir(self.db_path),
+                             readonly=True, lock=False,
+                             readahead=False, meminit=False)
+        with self.env.begin(write=False) as txn:
+            self.length = loads_pyarrow(txn.get(b'__len__'))
+            self.keys = loads_pyarrow(txn.get(b'__keys__'))
+    
     def __getitem__(self, index):
         env = self.env
         with env.begin(write=False) as txn:

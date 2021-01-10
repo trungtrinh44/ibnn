@@ -293,7 +293,9 @@ class StoResNet(nn.Module):
         x = x.view(-1, L, x.size(1))
         return x
 
-    def forward(self, x: Tensor, L=1, indices=None) -> Tensor:
+    def forward(self, x: Tensor, L=1, indices=None, return_kl=False) -> Tensor:
+        if return_kl:
+            return self._forward_impl(x, L, indices), self.kl()
         return self._forward_impl(x, L, indices)
 
 def _resnet(

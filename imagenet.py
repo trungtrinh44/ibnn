@@ -19,6 +19,7 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 from imagenet_loader import ImageFolderLMDB
 from models import count_parameters
 from models.resnet50 import resnet50
+from models.utils import bn_update
 
 torch.backends.cudnn.benchmark = True
 torch.backends.cudnn.deterministic = False
@@ -77,8 +78,6 @@ def listener_process(queue, path, n_processes):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--seed', default=1, type=int, help='random seed')
-    parser.add_argument('--model', default='StoWideResNet28x10',
-                        type=str, help='model name')
     parser.add_argument('--kl_weight', dest="kl_weight",
                         action=StoreDictKeyPair, keys=('kl_min', 'kl_max', 'last_iter'))
     parser.add_argument('--batch_size', dest='batch_size', action=StoreDictKeyPair,
@@ -176,11 +175,13 @@ def parallel_nll(model, x, y, n_sample):
     return -logp.mean(), prob
 
 
-def get_model(args, gpu):
+def get_model(args, gpu, dataloader):
     step_per_epoch = 1281167 // args.batch_size
     model = resnet50(deterministic_pretrained=args.use_pretrained, n_components=args.n_components,
                      prior_mean=args.prior['mean'], prior_std=args.prior['std'], posterior_mean_init=args.posterior['mean_init'], posterior_std_init=args.posterior['std_init'])
     model.cuda(gpu)
+    if args.use_pretrained:
+        bn_update(dataloader, model, args.num_sample['train'])
     model = nn.SyncBatchNorm.convert_sync_batchnorm(model)
     detp = []
     stop = []
@@ -272,7 +273,7 @@ def train(gpu, args, queue):
         f"Train size: {len(train_loader)}, test size: {len(test_loader)}")
     torch.manual_seed(args.seed + rank*123)
     torch.cuda.set_device(gpu)
-    model, optimizer, scheduler = get_model(args, gpu)
+    model, optimizer, scheduler = get_model(args, gpu, train_loader)
     if rank == 0:
         count_parameters(model, logger)
         logger.info(str(model))

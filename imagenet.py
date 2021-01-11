@@ -291,7 +291,7 @@ def train(gpu, args, queue):
     if rank == 0:
         count_parameters(model, logger)
         logger.info(str(model))
-    checkpoint_dir = os.path.join(args.root, 'checkpoint.pt')
+    checkpoint_dir = os.path.join(args.root, 'checkpoint_{}.pt')
     model.train()
     scaler = torch.cuda.amp.GradScaler()
     for i in range(args.num_epochs):
@@ -318,7 +318,7 @@ def train(gpu, args, queue):
                         i, loglike.item(), kl.item(), klw, optimizer.param_groups[0]['lr'], optimizer.param_groups[2]['lr'], t1-t0)
         if (i+1) % args.test_freq == 0:
             if rank == 0:
-                torch.save(model.module.state_dict(), checkpoint_dir)
+                torch.save(model.module.state_dict(), checkpoint_dir.format(str(i)))
                 logger.info('Save checkpoint')
             nll, acc = test_nll(model, test_loader,
                                 args.num_sample['test'])
@@ -327,7 +327,7 @@ def train(gpu, args, queue):
                 "VB Epoch %d: test NLL %.4f, acc %.4f", i, nll, acc)
             model.train()
     if rank == 0:
-        torch.save(model.module.state_dict(), checkpoint_dir)
+        torch.save(model.module.state_dict(), checkpoint_dir.format('final'))
         logger.info('Save checkpoint')
     tnll = 0
     acc = 0

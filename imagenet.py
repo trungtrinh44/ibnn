@@ -186,20 +186,29 @@ def get_model(args, gpu, dataloader):
     model = nn.SyncBatchNorm.convert_sync_batchnorm(model)
     detp = []
     stop = []
+    bnp = []
     for name, param in model.named_parameters():
         if 'posterior' in name or 'prior' in name:
             stop.append(param)
         else:
             detp.append(param)
+    for n in model.modules():
+        if isinstance(n, torch.nn.modules.batchnorm._BatchNorm):
+            bnp.extend([n.weight, n.bias])
+    detp = list(set(detp) - set(bnp))
     optimizer = torch.optim.SGD(
         [{
             'params': detp,
             **args.det_params
         }, {
+            'params': bnp,
+            'lr': args.det_params['lr'],
+            'weight_decay': 0.0
+        }, {
             'params': stop,
             **args.sto_params
         }], **args.sgd_params)
-    scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, [lambda step: schedule(step, step_per_epoch, args.warmup, args.schedule['det']), lambda step: schedule(step, step_per_epoch, args.warmup, args.schedule['sto'])])
+    scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, [lambda step: schedule(step, step_per_epoch, args.warmup, args.schedule['det']), lambda step: schedule(step, step_per_epoch, args.warmup, args.schedule['det']), lambda step: schedule(step, step_per_epoch, args.warmup, args.schedule['sto'])])
     model = DDP(model, device_ids=[gpu])
 #     if args.use_pretrained:
 #         bn_update(dataloader, model, args.num_sample['train'])
@@ -253,7 +262,8 @@ def test_nll(model, loader, num_sample):
         for bx, by in loader:
             bx = bx.cuda(non_blocking=True)
             by = by.cuda(non_blocking=True)
-            bnll, pred = parallel_nll(model, bx, by, num_sample)
+            with torch.cuda.amp.autocast():
+                bnll, pred = parallel_nll(model, bx, by, num_sample)
             nll += bnll.item() * bx.size(0)
             acc += (pred.exp().mean(1).argmax(-1) == by).sum().item()
         acc /= len(loader.dataset)
@@ -305,14 +315,13 @@ def train(gpu, args, queue):
             t1 = time.time()
 #         if (i+1) % args.logging_freq == 0:
             logger.info("VB Epoch %d: loglike: %.4f, kl: %.4f, kl weight: %.4f, lr1: %.4f, lr2: %.4f, time: %.1f",
-                        i, loglike.item(), kl.item(), klw, optimizer.param_groups[0]['lr'], optimizer.param_groups[1]['lr'], t1-t0)
+                        i, loglike.item(), kl.item(), klw, optimizer.param_groups[0]['lr'], optimizer.param_groups[2]['lr'], t1-t0)
         if (i+1) % args.test_freq == 0:
             if rank == 0:
                 torch.save(model.module.state_dict(), checkpoint_dir)
                 logger.info('Save checkpoint')
-            with torch.no_grad():
-                nll, acc = test_nll(model, test_loader,
-                                    args.num_sample['test'])
+            nll, acc = test_nll(model, test_loader,
+                                args.num_sample['test'])
 #                 if rank == 0:
             logger.info(
                 "VB Epoch %d: test NLL %.4f, acc %.4f", i, nll, acc)

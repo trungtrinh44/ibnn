@@ -8,6 +8,7 @@ from itertools import chain
 from time import sleep
 import numpy as np
 import torch
+import time
 import torch.distributed as dist
 import torch.distributions as D
 import torch.multiprocessing as mp
@@ -200,8 +201,8 @@ def get_model(args, gpu, dataloader):
         }], **args.sgd_params)
     scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, [lambda step: schedule(step, step_per_epoch, args.warmup, args.schedule['det']), lambda step: schedule(step, step_per_epoch, args.warmup, args.schedule['sto'])])
     model = DDP(model, device_ids=[gpu])
-    if args.use_pretrained:
-        bn_update(dataloader, model, args.num_sample['train'])
+#     if args.use_pretrained:
+#         bn_update(dataloader, model, args.num_sample['train'])
     return model, optimizer, scheduler
 
 
@@ -282,21 +283,29 @@ def train(gpu, args, queue):
         logger.info(str(model))
     checkpoint_dir = os.path.join(args.root, 'checkpoint.pt')
     model.train()
+    scaler = torch.cuda.amp.GradScaler()
     for i in range(args.num_epochs):
         train_sampler.set_epoch(i)
         for bx, by in train_loader:
+            t0 = time.time()
             bx = bx.cuda(non_blocking=True)
             by = by.cuda(non_blocking=True)
-            loglike, kl = vb_loss(model, bx, by, args.num_sample['train'])
-            klw = get_kl_weight(i, args)
-            loss = loglike + klw*kl/(n_batch*args.total_batch_size)
+            with torch.cuda.amp.autocast():
+                loglike, kl = vb_loss(model, bx, by, args.num_sample['train'])
+                klw = get_kl_weight(i, args)
+                loss = loglike + klw*kl/(n_batch*args.total_batch_size)
+            scaler.scale(loss).backward()
+            scaler.step(optimizer)
+
+            scaler.update()
+            
             optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()
+
             scheduler.step()
+            t1 = time.time()
 #         if (i+1) % args.logging_freq == 0:
-            logger.info("VB Epoch %d: loglike: %.4f, kl: %.4f, kl weight: %.4f, lr1: %.4f, lr2: %.4f",
-                        i, loglike.item(), kl.item(), klw, optimizer.param_groups[0]['lr'], optimizer.param_groups[1]['lr'])
+            logger.info("VB Epoch %d: loglike: %.4f, kl: %.4f, kl weight: %.4f, lr1: %.4f, lr2: %.4f, time: %.1f",
+                        i, loglike.item(), kl.item(), klw, optimizer.param_groups[0]['lr'], optimizer.param_groups[1]['lr'], t1-t0)
         if (i+1) % args.test_freq == 0:
             if rank == 0:
                 torch.save(model.module.state_dict(), checkpoint_dir)

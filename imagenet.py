@@ -104,7 +104,7 @@ def main():
                         type=int, help='Testing frequency')
     parser.add_argument('--schedule', help='lr schedule',
                         action=StoreDictKeyPair, keys=('det', 'sto'),
-                        default={'det': [(1.0, 5), (0.1, 30), (0.01, 60), (0.001, 80)], 'sto': []})
+                        default={'det': [(0.1, 30), (0.01, 60), (0.001, 80)], 'sto': []})
     parser.add_argument('--warmup', help='warm up epochs', type=int, default=5)
     parser.add_argument('--posterior', help="posterior",
                         action=StoreDictKeyPair, keys=('mean_init', 'std_init'))
@@ -150,7 +150,7 @@ def schedule(step, steps_per_epoch, warm_up, multipliers):
     lr_epoch = step / steps_per_epoch
     factor = 1.0
     if warm_up >= 1:
-        factor = lr_epoch / warm_up
+        factor = min(1.0, lr_epoch / warm_up)
     for mult, start_epoch in multipliers[::-1]:
         if lr_epoch >= start_epoch:
             return mult
@@ -210,8 +210,6 @@ def get_model(args, gpu, dataloader):
         }], **args.sgd_params)
     scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, [lambda step: schedule(step, step_per_epoch, args.warmup, args.schedule['det']), lambda step: schedule(step, step_per_epoch, args.warmup, args.schedule['det']), lambda step: schedule(step, step_per_epoch, args.warmup, args.schedule['sto'])])
     model = DDP(model, device_ids=[gpu])
-#     if args.use_pretrained:
-#         bn_update(dataloader, model, args.num_sample['train'])
     return model, optimizer, scheduler
 
 
@@ -296,8 +294,8 @@ def train(gpu, args, queue):
     scaler = torch.cuda.amp.GradScaler()
     for i in range(args.num_epochs):
         train_sampler.set_epoch(i)
+        t0 = time.time()
         for bx, by in train_loader:
-            t0 = time.time()
             bx = bx.cuda(non_blocking=True)
             by = by.cuda(non_blocking=True)
             with torch.cuda.amp.autocast():
@@ -312,8 +310,8 @@ def train(gpu, args, queue):
             optimizer.zero_grad()
 
             scheduler.step()
-            t1 = time.time()
-#         if (i+1) % args.logging_freq == 0:
+        t1 = time.time()
+        if (i+1) % args.logging_freq == 0:
             logger.info("VB Epoch %d: loglike: %.4f, kl: %.4f, kl weight: %.4f, lr1: %.4f, lr2: %.4f, time: %.1f",
                         i, loglike.item(), kl.item(), klw, optimizer.param_groups[0]['lr'], optimizer.param_groups[2]['lr'], t1-t0)
         if (i+1) % args.test_freq == 0:
@@ -322,7 +320,6 @@ def train(gpu, args, queue):
                 logger.info('Save checkpoint')
             nll, acc = test_nll(model, test_loader,
                                 args.num_sample['test'])
-#                 if rank == 0:
             logger.info(
                 "VB Epoch %d: test NLL %.4f, acc %.4f", i, nll, acc)
             model.train()
@@ -357,7 +354,6 @@ def train(gpu, args, queue):
     nll_miss /= len(test_loader.dataset) - acc
     tnll /= len(test_loader.dataset)
     acc /= len(test_loader.dataset)
-    # if rank == 0:
     logger.info("Test data: acc %.4f, nll %.4f, nll miss %.4f" %
                 (acc, tnll, nll_miss))
     logger.info(END_MSG)

@@ -295,6 +295,7 @@ def train(gpu, args, queue):
     for i in range(args.num_epochs):
         train_sampler.set_epoch(i)
         t0 = time.time()
+        lls = []
         for bx, by in train_loader:
             bx = bx.cuda(non_blocking=True)
             by = by.cuda(non_blocking=True)
@@ -310,10 +311,12 @@ def train(gpu, args, queue):
             optimizer.zero_grad()
 
             scheduler.step()
+            print("VB Epoch %d: loglike: %.4f, kl: %.4f, kl weight: %.4f, lr1: %.4f, lr2: %.4f" % (i, loglike.item(), kl.item(), klw, optimizer.param_groups[0]['lr'], optimizer.param_groups[2]['lr']))
+            lls.append(loglike.item())
         t1 = time.time()
         if (i+1) % args.logging_freq == 0:
             logger.info("VB Epoch %d: loglike: %.4f, kl: %.4f, kl weight: %.4f, lr1: %.4f, lr2: %.4f, time: %.1f",
-                        i, loglike.item(), kl.item(), klw, optimizer.param_groups[0]['lr'], optimizer.param_groups[2]['lr'], t1-t0)
+                        i, np.mean(lls).item(), kl.item(), klw, optimizer.param_groups[0]['lr'], optimizer.param_groups[2]['lr'], t1-t0)
         if (i+1) % args.test_freq == 0:
             if rank == 0:
                 torch.save(model.module.state_dict(), checkpoint_dir.format(str(i)))

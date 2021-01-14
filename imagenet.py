@@ -261,6 +261,7 @@ def test_nll(model, loader, num_sample):
 
 
 def train(gpu, args, queue):
+    os.environ['CUDA_VISIBLE_DEVICES'] = str(gpu)
     worker_configurer(queue)
     rank = args.nr * args.gpus + gpu
     dist.init_process_group(
@@ -275,8 +276,7 @@ def train(gpu, args, queue):
     logger.info(
         f"Train size: {len(train_loader)}, test size: {len(test_loader)}")
     torch.manual_seed(args.seed + rank*123)
-    torch.cuda.set_device(gpu)
-    model, optimizer, scheduler = get_model(args, gpu, train_loader)
+    model, optimizer, scheduler = get_model(args, 0, train_loader)
     if rank == 0:
         count_parameters(model, logger)
         logger.info(str(model))

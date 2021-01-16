@@ -28,14 +28,17 @@ torch.backends.cudnn.benchmark = True
 torch.backends.cudnn.deterministic = False
 END_MSG = "PROCESS_END"
 
+
 def identity(x):
     return x
+
 
 def worker_urls(urls):
     result = wds.worker_urls(urls)
     print("worker_urls returning", len(result),
           "of", len(urls), "urls", file=sys.stderr)
     return result
+
 
 class StoreDictKeyPair(argparse.Action):
     def __init__(self, option_strings, dest, keys, nargs=None, const=None, default=None, type=None, choices=None, required=False, help=None, metavar=None):
@@ -92,14 +95,14 @@ def main():
     parser.add_argument('--kl_weight', help="kl_weight",
                         action=StoreDictKeyPair, keys=('kl_min', 'kl_max', 'last_iter'))
     parser.add_argument('--batch_size', action=StoreDictKeyPair,
-                        keys=('train', 'test'), help='batch size per gpu', default={'train':256,'test':500})
+                        keys=('train', 'test'), help='batch size per gpu', default={'train': 256, 'test': 500})
     parser.add_argument('--root', type=str, help='Directory')
     parser.add_argument('--prior', dest="prior",
                         action=StoreDictKeyPair, keys=('mean', 'std'))
     parser.add_argument('--n_components', default=2,
                         type=int, help='Number of components')
     parser.add_argument('--det_params', help="det_params",
-                        action=StoreDictKeyPair, keys=('lr', 'weight_decay'), default={'lr':0.1,'weight_decay':0.0001})
+                        action=StoreDictKeyPair, keys=('lr', 'weight_decay'), default={'lr': 0.1, 'weight_decay': 0.0001})
     parser.add_argument('--sto_params', help="sto_params",
                         action=StoreDictKeyPair, keys=('lr', 'weight_decay'))
     parser.add_argument('--sgd_params', help="sgd_params",
@@ -125,8 +128,10 @@ def main():
                         help='number of gpus per node')
     parser.add_argument('--nr', default=0, type=int,
                         help='ranking within the nodes')
-    parser.add_argument('--workers', default=4, type=int, help='number of data loading workers (default: 4)')
-    parser.add_argument('--traindir', default='data/imagenet/train.lmdb', type=str)
+    parser.add_argument('--workers', default=4, type=int,
+                        help='number of data loading workers (default: 4)')
+    parser.add_argument(
+        '--traindir', default='data/imagenet/train.lmdb', type=str)
     parser.add_argument('--valdir', default='data/imagenet/val.lmdb', type=str)
     args = parser.parse_args()
     args.world_size = args.gpus * args.nodes
@@ -167,7 +172,6 @@ def schedule(step, steps_per_epoch, warm_up, multipliers):
     return factor
 
 
-
 def vb_loss(model, x, y, n_sample):
     y = y.unsqueeze(1).expand(-1, n_sample)
     logits, kl = model(x, n_sample, return_kl=True)
@@ -196,33 +200,48 @@ def get_model(args, gpu, dataloader):
     model = nn.SyncBatchNorm.convert_sync_batchnorm(model)
     detp = []
     stop = []
+    bnp = []
     for name, param in model.named_parameters():
         if 'posterior' in name or 'prior' in name:
             stop.append(param)
         else:
             detp.append(param)
+    for n in model.modules():
+        if isinstance(n, torch.nn.modules.batchnorm._BatchNorm):
+            bnp.extend([n.weight, n.bias])
+    detp = list(set(detp) - set(bnp))
     optimizer = torch.optim.SGD(
         [{
             'params': detp,
-            **args.det_params
+            **args.det_params,
+            'initial_lr': args.det_params['lr']
         }, {
             'params': stop,
-            **args.sto_params
+            **args.sto_params,
+            'initial_lr': args.sto_params['lr']
+        }, {
+            'params': bnp,
+            'lr': args.det_params['lr'],
+            'weight_decay': 0.0,
+            'initial_lr': args.det_params['lr']
         }], **args.sgd_params)
-    scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, [lambda step: schedule(step, step_per_epoch, args.warmup, args.schedule['det']), lambda step: schedule(step, step_per_epoch, args.warmup, args.schedule['sto'])])
+    scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, [lambda step: schedule(step, step_per_epoch, args.warmup, args.schedule['det']),
+                                                              lambda step: schedule(step, step_per_epoch, args.warmup, args.schedule['sto']), 
+                                                              lambda step: schedule(step, step_per_epoch, args.warmup, args.schedule['det'])])
     model = DDP(model, device_ids=[gpu])
     return model, optimizer, scheduler
 
 
 def get_dataloader(args, rank):
-    trainshards='./data/imagenet/shards/imagenet-train-{000000..001281}.tar'
-    valshards='./data/imagenet/shards/imagenet-val-{000000..000049}.tar'
+    trainshards = './data/imagenet/shards/imagenet-train-{000000..001281}.tar'
+    valshards = './data/imagenet/shards/imagenet-val-{000000..000049}.tar'
     trainsize = 1281167
     train_batch_size = args.batch_size['train']
     test_batch_size = args.batch_size['test']
     shuffle_buffer = 1000
     num_test_workers = num_train_workers = args.workers
-    normalize = torchvision.transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+    normalize = torchvision.transforms.Normalize(
+        mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
     train_transform = torchvision.transforms.Compose(
         [
             torchvision.transforms.RandomResizedCrop(224),
@@ -235,7 +254,7 @@ def get_dataloader(args, rank):
         [
             torchvision.transforms.Resize(256),
             torchvision.transforms.CenterCrop(224),
-            torchvision.transforms.ToTensor(), 
+            torchvision.transforms.ToTensor(),
             normalize
         ]
     )
@@ -253,7 +272,8 @@ def get_dataloader(args, rank):
         train_dataset, batch_size=None, shuffle=False, num_workers=num_train_workers,
     )
     val_dataset = (
-        wds.Dataset(valshards, length=50000//test_batch_size, shard_selection=worker_urls)
+        wds.Dataset(valshards, length=50000//test_batch_size,
+                    shard_selection=worker_urls)
         .decode("pil")
         .to_tuple("jpg;png;jpeg cls")
         .map_tuple(val_transform, identity)
@@ -330,10 +350,11 @@ def train(gpu, args, queue):
             # optimizer.step()
             scheduler.step()
             scaler.update()
-            
+
             optimizer.zero_grad()
 
-            print("VB Epoch %d: loglike: %.4f, kl: %.4f, kl weight: %.4f, lr1: %.4f, lr2: %.4f" % (i, loglike.item(), kl.item(), klw, optimizer.param_groups[0]['lr'], optimizer.param_groups[1]['lr']))
+            print("VB Epoch %d: loglike: %.4f, kl: %.4f, kl weight: %.4f, lr1: %.4f, lr2: %.4f" % (
+                i, loglike.item(), kl.item(), klw, optimizer.param_groups[0]['lr'], optimizer.param_groups[1]['lr']))
             lls.append(loglike.item())
         t1 = time.time()
         if (i+1) % args.logging_freq == 0:
@@ -341,7 +362,8 @@ def train(gpu, args, queue):
                         i, np.mean(lls).item(), kl.item(), klw, optimizer.param_groups[0]['lr'], optimizer.param_groups[1]['lr'], t1-t0)
         if (i+1) % args.test_freq == 0:
             if rank == 0:
-                torch.save(model.module.state_dict(), checkpoint_dir.format(str(i)))
+                torch.save(model.module.state_dict(),
+                           checkpoint_dir.format(str(i)))
                 logger.info('Save checkpoint')
             nll, acc = test_nll(model, test_loader,
                                 args.num_sample['test'])

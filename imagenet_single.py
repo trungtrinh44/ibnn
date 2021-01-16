@@ -76,11 +76,15 @@ def main():
     args.local_rank = int(os.environ["LOCAL_RANK"])
     args.rank = int(os.environ["RANK"])
     args.root = os.environ["ROOT_DIR"]
+
+    args.gpu = args.local_rank % torch.cuda.device_count()
+    print(args.gpu)
+    torch.cuda.set_device(args.gpu)
+    dist.init_process_group(backend='nccl', init_method='env://')
+    
     args.world_size = torch.distributed.get_world_size()
     args.total_batch_size = args.batch_size['train']
     args.batch_size['train'] //= args.world_size
-    args.gpu = args.local_rank % torch.cuda.device_count()
-    os.environ['CUDA_VISIBLE_DEVICES'] = str(args.gpu)
     print("Using seed = {}".format(args.seed))
     torch.manual_seed(args.seed + args.local_rank)
     torch.cuda.manual_seed(args.seed + args.local_rank)
@@ -128,11 +132,11 @@ def parallel_nll(model, x, y, n_sample):
     return -logp.mean(), prob
 
 
-def get_model(args, gpu, dataloader):
+def get_model(args, dataloader):
     args.step_per_epoch = step_per_epoch = 1281167 // args.total_batch_size
     model = resnet50(deterministic_pretrained=args.use_pretrained, n_components=args.n_components,
                      prior_mean=args.prior['mean'], prior_std=args.prior['std'], posterior_mean_init=args.posterior['mean_init'], posterior_std_init=args.posterior['std_init'])
-    model.cuda(gpu)
+    model.cuda()
     model = nn.SyncBatchNorm.convert_sync_batchnorm(model)
     detp = []
     stop = []
@@ -169,7 +173,7 @@ def get_model(args, gpu, dataloader):
                                       warmup_length=args.warmup*step_per_epoch)
     ])
     args.step_per_epoch = step_per_epoch
-    model = DDP(model, device_ids=[gpu])
+    model = DDP(model, device_ids=[args.gpu])
     return model, optimizer, scheduler
 
 
@@ -233,14 +237,13 @@ def test_nll(model, loader, num_sample):
 
 
 def train(args):
-    dist.init_process_group(backend='nccl', init_method='env://')
     print('Get data loader')
     train_loader, test_loader = get_dataloader(args)
     if args.rank == 0:
         print(f"Train size: {len(train_loader.dataset)}, test size: {len(test_loader.dataset)}")
     n_batch = len(train_loader)
     print(f"Train size: {len(train_loader)}, test size: {len(test_loader)}")
-    model, optimizer, scheduler = get_model(args, 0, train_loader)
+    model, optimizer, scheduler = get_model(args, train_loader)
     if args.rank == 0:
         count_parameters(model)
         print(str(model))
@@ -265,19 +268,18 @@ def train(args):
             scaler.step(optimizer)
             scaler.update()
             scheduler.step()
-            print("VB Epoch %d: loglike: %.4f, kl: %.4f, kl weight: %.4f, lr1: %.4f, lr2: %.4f" % (i, loglike.item(), kl.item(), klw, optimizer.param_groups[0]['lr'], optimizer.param_groups[1]['lr']))
+            print("VB Epoch %d: loglike: %.4f, kl: %.4f, kl weight: %.4f, lr1: %.4f, lr2: %.4f, time: %.2f" % (i, loglike.item(), kl.item(), klw, optimizer.param_groups[0]['lr'], optimizer.param_groups[1]['lr'], time.time()-t0))
             lls.append(loglike.item())
         t1 = time.time()
         if (i+1) % args.logging_freq == 0:
-            print("VB Epoch %d: loglike: %.4f, kl: %.4f, kl weight: %.4f, lr1: %.4f, lr2: %.4f, time: %.1f",
-                        i, np.mean(lls).item(), kl.item(), klw, optimizer.param_groups[0]['lr'], optimizer.param_groups[1]['lr'], t1-t0)
+            print("VB Epoch %d: loglike: %.4f, kl: %.4f, kl weight: %.4f, lr1: %.4f, lr2: %.4f, time: %.1f" % (i, np.mean(lls).item(), kl.item(), klw, optimizer.param_groups[0]['lr'], optimizer.param_groups[1]['lr'], t1-t0))
         if (i+1) % args.test_freq == 0:
             if args.rank == 0:
                 torch.save(model.module.state_dict(), checkpoint_dir.format(str(i)))
                 print('Save checkpoint')
             nll, acc = test_nll(model, test_loader,
                                 args.num_sample['test'])
-            print("VB Epoch %d: test NLL %.4f, acc %.4f", i, nll, acc)
+            print("VB Epoch %d: test NLL %.4f, acc %.4f" % (i, nll, acc))
             model.train()
     if args.rank == 0:
         torch.save(model.module.state_dict(), checkpoint_dir.format('final'))
@@ -310,8 +312,7 @@ def train(args):
     nll_miss /= len(test_loader.dataset) - acc
     tnll /= len(test_loader.dataset)
     acc /= len(test_loader.dataset)
-    print("Test data: acc %.4f, nll %.4f, nll miss %.4f" %
-                (acc, tnll, nll_miss))
+    print("Test data: acc %.4f, nll %.4f, nll miss %.4f" % (acc, tnll, nll_miss))
     print(END_MSG)
 
 

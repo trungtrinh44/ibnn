@@ -6,7 +6,7 @@ import time
 from argparse import ArgumentParser, REMAINDER
 
 import torch
-
+import json
 
 def parse_args():
     """
@@ -89,6 +89,9 @@ def main():
 
     processes = []
     os.makedirs(args.root, exist_ok=True)
+    with open(os.path.join(args.root, 'config.txt'), 'w') as out:
+        out.write(" ".join(args.training_script_args))
+    
     for local_rank in range(0, args.nproc_per_node):
         # each process's rank
         dist_rank = args.nproc_per_node * args.node_rank + local_rank

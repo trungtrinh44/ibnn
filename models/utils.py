@@ -9,16 +9,15 @@ from prettytable import PrettyTable
 from torch.nn.modules.utils import _pair
 from copy import deepcopy
 
-def count_parameters(model, logger):
+def count_parameters(model):
     table = PrettyTable(["Modules", "Parameters", "Trainable?"])
     total_params = 0
     for name, parameter in model.named_parameters():
         param = parameter.numel()
         table.add_row([name, param, parameter.requires_grad])
         total_params += param
-    logger.info(f"\n{table}")
-    logger.info(f"Total Trainable Params: {total_params}")
-    return total_params
+    print(f"\n{table}")
+    print(f"Total Trainable Params: {total_params}")
 
 def recursive_traverse(module, layers):
     children = list(module.children())

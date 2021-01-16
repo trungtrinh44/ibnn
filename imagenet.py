@@ -14,7 +14,9 @@ import torch.distributions as D
 import torch.multiprocessing as mp
 import torch.nn as nn
 import torchvision
+import webdataset as wds
 import json
+import sys
 from torch.nn.parallel import DistributedDataParallel as DDP
 
 from imagenet_loader import ImageFolderLMDB
@@ -26,6 +28,14 @@ torch.backends.cudnn.benchmark = True
 torch.backends.cudnn.deterministic = False
 END_MSG = "PROCESS_END"
 
+def identity(x):
+    return x
+
+def worker_urls(urls):
+    result = wds.worker_urls(urls)
+    print("worker_urls returning", len(result),
+          "of", len(urls), "urls", file=sys.stderr)
+    return result
 
 class StoreDictKeyPair(argparse.Action):
     def __init__(self, option_strings, dest, keys, nargs=None, const=None, default=None, type=None, choices=None, required=False, help=None, metavar=None):
@@ -205,33 +215,54 @@ def get_model(args, gpu, dataloader):
 
 
 def get_dataloader(args, rank):
-    normalize = torchvision.transforms.Normalize(mean=[0.485, 0.456, 0.406],
-                                                 std=[0.229, 0.224, 0.225])
-    train_data = ImageFolderLMDB(
-        args.traindir,
-        torchvision.transforms.Compose([
+    trainshards='./data/imagenet/shards/imagenet-train-{000000..001281}.tar'
+    valshards='./data/imagenet/shards/imagenet-val-{000000..000049}.tar'
+    trainsize = 1281167
+    train_batch_size = args.batch_size['train']
+    test_batch_size = args.batch_size['test']
+    shuffle_buffer = 1000
+    num_test_workers = num_train_workers = args.workers
+    normalize = torchvision.transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+    train_transform = torchvision.transforms.Compose(
+        [
             torchvision.transforms.RandomResizedCrop(224),
             torchvision.transforms.RandomHorizontalFlip(),
             torchvision.transforms.ToTensor(),
             normalize,
-        ]))
-    train_sampler = torch.utils.data.distributed.DistributedSampler(train_data, seed=args.seed, shuffle=True, drop_last=True)
-    train_loader = torch.utils.data.DataLoader(train_data, batch_size=args.batch_size['train'], pin_memory=True,
-                              shuffle=False, num_workers=args.workers, sampler=train_sampler, drop_last=True)
-
-    test_data = ImageFolderLMDB(
-        args.valdir,
-        torchvision.transforms.Compose([
+        ]
+    )
+    val_transform = torchvision.transforms.Compose(
+        [
             torchvision.transforms.Resize(256),
             torchvision.transforms.CenterCrop(224),
-            torchvision.transforms.ToTensor(),
-            normalize,
-        ]))
-    test_sampler = torch.utils.data.distributed.DistributedSampler(test_data, shuffle=False, drop_last=False)
-    test_loader = torch.utils.data.DataLoader(test_data, batch_size=args.batch_size['test'],
-                             pin_memory=True, shuffle=False, num_workers=args.workers, sampler=test_sampler)
-
-    return train_loader, test_loader, train_sampler, test_sampler
+            torchvision.transforms.ToTensor(), 
+            normalize
+        ]
+    )
+    num_batches = trainsize // train_batch_size
+    train_dataset = (
+        wds.Dataset(trainshards, length=num_batches,
+                    shard_selection=worker_urls)
+        .shuffle(shuffle_buffer)
+        .decode("pil")
+        .to_tuple("jpg;png;jpeg cls")
+        .map_tuple(train_transform, identity)
+        .batched(train_batch_size)
+    )
+    train_loader = torch.utils.data.DataLoader(
+        train_dataset, batch_size=None, shuffle=False, num_workers=num_train_workers,
+    )
+    val_dataset = (
+        wds.Dataset(valshards, length=50000//test_batch_size, shard_selection=worker_urls)
+        .decode("pil")
+        .to_tuple("jpg;png;jpeg cls")
+        .map_tuple(val_transform, identity)
+        .batched(test_batch_size)
+    )
+    val_loader = torch.utils.data.DataLoader(
+        val_dataset, batch_size=None, shuffle=False, num_workers=num_test_workers,
+    )
+    return train_loader, val_loader
 
 
 def get_logger(args, logger, rank):
@@ -268,7 +299,7 @@ def train(gpu, args, queue):
         backend='nccl', init_method='env://', world_size=args.world_size, rank=rank)
     logger = logging.getLogger(f'worker-{rank}')
     logger.info('Get data loader')
-    train_loader, test_loader, train_sampler, test_sampler = get_dataloader(args, rank)
+    train_loader, test_loader = get_dataloader(args, rank)
     if rank == 0:
         logger.info(
             f"Train size: {len(train_loader.dataset)}, test size: {len(test_loader.dataset)}")
@@ -284,7 +315,6 @@ def train(gpu, args, queue):
     model.train()
     scaler = torch.cuda.amp.GradScaler()
     for i in range(args.num_epochs):
-        train_sampler.set_epoch(i)
         t0 = time.time()
         lls = []
         for bx, by in train_loader:
@@ -296,12 +326,13 @@ def train(gpu, args, queue):
                 loss = loglike + klw*kl/(n_batch*args.total_batch_size)
             scaler.scale(loss).backward()
             scaler.step(optimizer)
-
+            # loss.backward()
+            # optimizer.step()
+            scheduler.step()
             scaler.update()
             
             optimizer.zero_grad()
 
-            scheduler.step()
             print("VB Epoch %d: loglike: %.4f, kl: %.4f, kl weight: %.4f, lr1: %.4f, lr2: %.4f" % (i, loglike.item(), kl.item(), klw, optimizer.param_groups[0]['lr'], optimizer.param_groups[1]['lr']))
             lls.append(loglike.item())
         t1 = time.time()

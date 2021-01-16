@@ -58,6 +58,7 @@ def parse_args():
         "be used for communciation during distributed "
         "training",
     )
+    parser.add_argument('--root', type=str, help='Directory')
 
     # positional
     parser.add_argument(
@@ -93,17 +94,14 @@ def main():
         dist_rank = args.nproc_per_node * args.node_rank + local_rank
         current_env["RANK"] = str(dist_rank)
         current_env["LOCAL_RANK"] = str(local_rank)
-
+        current_env["ROOT_DIR"] = args.root
         # spawn the processes
         cmd = [sys.executable, "-u", args.training_script] + \
             args.training_script_args
 
         print(cmd)
 
-        stdout = (
-            None if local_rank == 0 else open(
-                "GPU_" + str(local_rank) + ".log", "w")
-        )
+        stdout = open(os.path.join(args.root_dir, f"GPU_{local_rank}.log"), "w")
 
         process = subprocess.Popen(cmd, env=current_env, stdout=stdout)
         processes.append(process)

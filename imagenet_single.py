@@ -12,6 +12,7 @@ import torch.nn as nn
 import torchvision
 import json
 from torch.nn.parallel import DistributedDataParallel as DDP
+import random
 
 from imagenet_loader import ImageFolderLMDB
 from models import count_parameters
@@ -43,7 +44,6 @@ def main():
                         action=StoreDictKeyPair, keys=('kl_min', 'kl_max', 'last_iter'))
     parser.add_argument('--batch_size', action=StoreDictKeyPair,
                         keys=('train', 'test'), help='batch size per gpu', default={'train':256,'test':500})
-    parser.add_argument('--root', type=str, help='Directory')
     parser.add_argument('--prior', dest="prior",
                         action=StoreDictKeyPair, keys=('mean', 'std'))
     parser.add_argument('--n_components', default=2,
@@ -74,7 +74,8 @@ def main():
     parser.add_argument('--valdir', default='data/imagenet/val.lmdb', type=str)
     args = parser.parse_args()
     args.local_rank = int(os.environ["LOCAL_RANK"])
-    args.args.rank = int(os.environ["args.rank"])
+    args.rank = int(os.environ["RANK"])
+    args.root = os.environ["ROOT_DIR"]
     args.world_size = torch.distributed.get_world_size()
     args.total_batch_size = args.batch_size['train']
     args.batch_size['train'] //= args.world_size
@@ -203,7 +204,7 @@ def get_dataloader(args):
         pin_memory=True, shuffle=False, num_workers=args.workers, sampler=test_sampler
     )
 
-    return train_loader, test_loader, train_sampler, test_sampler
+    return train_loader, test_loader
 
 def lr_cosine_policy(warmup_length, epoch, total_epochs):
     if epoch < warmup_length:
@@ -234,7 +235,7 @@ def test_nll(model, loader, num_sample):
 def train(args):
     dist.init_process_group(backend='nccl', init_method='env://')
     print('Get data loader')
-    train_loader, test_loader, train_sampler, test_sampler = get_dataloader(args)
+    train_loader, test_loader = get_dataloader(args)
     if args.rank == 0:
         print(f"Train size: {len(train_loader.dataset)}, test size: {len(test_loader.dataset)}")
     n_batch = len(train_loader)
@@ -248,7 +249,7 @@ def train(args):
     scaler = torch.cuda.amp.GradScaler()
     iteration = 0
     for i in range(args.num_epochs):
-        train_sampler.set_epoch(i)
+        train_loader.sampler.set_epoch(i)
         t0 = time.time()
         lls = []
         for bx, by in train_loader:

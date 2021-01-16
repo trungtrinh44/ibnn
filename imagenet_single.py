@@ -88,12 +88,12 @@ def main():
     random.seed(args.seed + args.local_rank)
     train(args)
 
-def get_kl_weight(epoch, args):
+def get_kl_weight(iteration, args):
     kl_max = args.kl_weight['kl_max']
     kl_min = args.kl_weight['kl_min']
     last_iter = args.kl_weight['last_iter']*args.step_per_epoch
     value = (kl_max-kl_min)/last_iter
-    return min(kl_max, kl_min + epoch*value)
+    return min(kl_max, kl_min + iteration*value)
 
 
 def schedule(step, steps_per_epoch, warm_up, multipliers):
@@ -253,20 +253,17 @@ def train(args):
         t0 = time.time()
         lls = []
         for bx, by in train_loader:
+            optimizer.zero_grad()
             bx = bx.cuda(non_blocking=True)
             by = by.cuda(non_blocking=True)
-            iteration += 1
             klw = get_kl_weight(iteration, args)
+            iteration += 1
             with torch.cuda.amp.autocast():
                 loglike, kl = vb_loss(model, bx, by, args.num_sample['train'])
                 loss = loglike + klw*kl/(n_batch*args.total_batch_size)
             scaler.scale(loss).backward()
             scaler.step(optimizer)
-
             scaler.update()
-            
-            optimizer.zero_grad()
-
             scheduler.step()
             print("VB Epoch %d: loglike: %.4f, kl: %.4f, kl weight: %.4f, lr1: %.4f, lr2: %.4f" % (i, loglike.item(), kl.item(), klw, optimizer.param_groups[0]['lr'], optimizer.param_groups[1]['lr']))
             lls.append(loglike.item())

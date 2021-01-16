@@ -101,7 +101,7 @@ def main():
 
         print(cmd)
 
-        stdout = open(os.path.join(args.root_dir, f"GPU_{local_rank}.log"), "w")
+        stdout = open(os.path.join(args.root, f"GPU_{local_rank}.log"), "w")
 
         process = subprocess.Popen(cmd, env=current_env, stdout=stdout)
         processes.append(process)

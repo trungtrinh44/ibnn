@@ -88,7 +88,7 @@ def main():
     current_env["WORLD_SIZE"] = str(dist_world_size)
 
     processes = []
-
+    os.makedirs(args.root, exist_ok=True)
     for local_rank in range(0, args.nproc_per_node):
         # each process's rank
         dist_rank = args.nproc_per_node * args.node_rank + local_rank

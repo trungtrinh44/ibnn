@@ -14,7 +14,7 @@ import json
 from torch.nn.parallel import DistributedDataParallel as DDP
 import random
 
-from imagenet_loader import ImageFolderLMDB
+from imagenet_loader import get_dali_train_loader, get_dali_val_loader
 from models import count_parameters
 from models.resnet50 import resnet50
 
@@ -62,6 +62,8 @@ def main():
                         type=int, help='Logging frequency')
     parser.add_argument('--test_freq', default=15,
                         type=int, help='Testing frequency')
+    parser.add_argument('--start_epoch', default=0,
+                        type=int, help='Start from epoch')
     parser.add_argument('--schedule', help='lr schedule',
                         action=StoreDictKeyPair, keys=('det', 'sto'),
                         default={'det': [(0.1, 30), (0.01, 60), (0.001, 80)], 'sto': []})
@@ -178,37 +180,28 @@ def get_model(args, dataloader):
 
 
 def get_dataloader(args):
-    normalize = torchvision.transforms.Normalize(mean=[0.485, 0.456, 0.406],
-                                                 std=[0.229, 0.224, 0.225])
-    train_data = ImageFolderLMDB(
-        args.traindir,
-        torchvision.transforms.Compose([
-            torchvision.transforms.RandomResizedCrop(224),
-            torchvision.transforms.RandomHorizontalFlip(),
-            torchvision.transforms.ToTensor(),
-            normalize,
-        ]))
-    train_sampler = torch.utils.data.distributed.DistributedSampler(train_data, seed=args.seed, shuffle=True, drop_last=True)
-    train_loader = torch.utils.data.DataLoader(
-        train_data, batch_size=args.batch_size['train'], pin_memory=True,
-        shuffle=False, num_workers=args.workers, sampler=train_sampler, drop_last=True
+    get_train_loader = get_dali_train_loader(dali_cpu=False)
+    get_val_loader = get_dali_val_loader()
+    train_loader, train_loader_len = get_train_loader(
+        path=[f"data/imagenet/tf_records/train/train-{i:05d}-of-01024" for i in range(1024)],
+        index_path=[f"data/imagenet/tf_records/train/train-{i:05d}-of-01024.txt" for i in range(1024)],
+        batch_size=args.batch_size["train"],
+        num_classes=1000,
+        one_hot=False,
+        start_epoch=args.start_epoch,
+        workers=args.workers,
     )
 
-    test_data = ImageFolderLMDB(
-        args.valdir,
-        torchvision.transforms.Compose([
-            torchvision.transforms.Resize(256),
-            torchvision.transforms.CenterCrop(224),
-            torchvision.transforms.ToTensor(),
-            normalize,
-        ]))
-    test_sampler = torch.utils.data.distributed.DistributedSampler(test_data, shuffle=False, drop_last=False)
-    test_loader = torch.utils.data.DataLoader(
-        test_data, batch_size=args.batch_size['test'],
-        pin_memory=True, shuffle=False, num_workers=args.workers, sampler=test_sampler
+    val_loader, val_loader_len = get_val_loader(
+        path=[f"data/imagenet/tf_records/validation/validation-{i:05d}-of-00128" for i in range(128)],
+        index_path=[f"data/imagenet/tf_records/validation/validation-{i:05d}-of-00128.txt" for i in range(128)],
+        batch_size=args.batch_size["test"],
+        num_classes=1000,
+        one_hot=False,
+        workers=args.workers
     )
 
-    return train_loader, test_loader
+    return train_loader, val_loader, train_loader_len, val_loader_len
 
 def lr_cosine_policy(warmup_length, epoch, total_epochs):
     if epoch < warmup_length:
@@ -224,25 +217,23 @@ def test_nll(model, loader, num_sample):
     with torch.no_grad():
         nll = 0
         acc = 0
+        count = 0
         for bx, by in loader:
-            bx = bx.cuda(non_blocking=True)
-            by = by.cuda(non_blocking=True)
+            count += bx.size(0)
             with torch.cuda.amp.autocast():
                 bnll, pred = parallel_nll(model, bx, by, num_sample)
             nll += bnll.item() * bx.size(0)
             acc += (pred.exp().mean(1).argmax(-1) == by).sum().item()
-        acc /= len(loader.dataset)
-        nll /= len(loader.dataset)
+        acc /= count
+        nll /= count
     return nll, acc
 
 
 def train(args):
     print('Get data loader')
-    train_loader, test_loader = get_dataloader(args)
-    if args.rank == 0:
-        print(f"Train size: {len(train_loader.dataset)}, test size: {len(test_loader.dataset)}")
-    n_batch = len(train_loader)
-    print(f"Train size: {len(train_loader)}, test size: {len(test_loader)}")
+    train_loader, test_loader, train_loader_len, test_loader_len = get_dataloader(args)
+    n_batch = train_loader_len
+    print(f"Train size: {train_loader_len}, test size: {test_loader_len}")
     model, optimizer, scheduler = get_model(args, train_loader)
     if args.rank == 0:
         count_parameters(model)
@@ -252,13 +243,10 @@ def train(args):
     scaler = torch.cuda.amp.GradScaler()
     iteration = 0
     for i in range(args.num_epochs):
-        train_loader.sampler.set_epoch(i)
         t0 = time.time()
         lls = []
         for bx, by in train_loader:
             optimizer.zero_grad()
-            bx = bx.cuda(non_blocking=True)
-            by = by.cuda(non_blocking=True)
             klw = get_kl_weight(iteration, args)
             iteration += 1
             with torch.cuda.amp.autocast():
@@ -284,35 +272,35 @@ def train(args):
     if args.rank == 0:
         torch.save(model.module.state_dict(), checkpoint_dir.format('final'))
         print('Save checkpoint')
-    tnll = 0
-    acc = 0
-    nll_miss = 0
-    model.eval()
-    with torch.no_grad():
-        for bx, by in test_loader:
-            bx = bx.cuda(non_blocking=True)
-            by = by.cuda(non_blocking=True)
-            indices = torch.empty(
-                bx.size(0)*args.num_sample['test'], dtype=torch.long, device=bx.device)
-            prob = torch.cat([model(bx, args.num_sample['test'], indices=torch.full((bx.size(0)*args.num_sample['test'],),
-                                                                                    idx, out=indices, device=bx.device, dtype=torch.long)) for idx in range(model.module.n_components)], dim=1)
-            y_target = by.unsqueeze(
-                1).expand(-1, args.num_sample['test']*model.module.n_components)
-            bnll = D.Categorical(logits=prob).log_prob(y_target)
-            bnll = torch.logsumexp(bnll, dim=1) - torch.log(torch.tensor(
-                args.num_sample['test']*model.module.n_components, dtype=torch.float32, device=bnll.device))
-            tnll -= bnll.sum().item()
-            vote = prob.exp().mean(dim=1)
-            pred = vote.argmax(dim=1)
+    # tnll = 0
+    # acc = 0
+    # nll_miss = 0
+    # model.eval()
+    # with torch.no_grad():
+    #     for bx, by in test_loader:
+    #         bx = bx.cuda(non_blocking=True)
+    #         by = by.cuda(non_blocking=True)
+    #         indices = torch.empty(
+    #             bx.size(0)*args.num_sample['test'], dtype=torch.long, device=bx.device)
+    #         prob = torch.cat([model(bx, args.num_sample['test'], indices=torch.full((bx.size(0)*args.num_sample['test'],),
+    #                                                                                 idx, out=indices, device=bx.device, dtype=torch.long)) for idx in range(model.module.n_components)], dim=1)
+    #         y_target = by.unsqueeze(
+    #             1).expand(-1, args.num_sample['test']*model.module.n_components)
+    #         bnll = D.Categorical(logits=prob).log_prob(y_target)
+    #         bnll = torch.logsumexp(bnll, dim=1) - torch.log(torch.tensor(
+    #             args.num_sample['test']*model.module.n_components, dtype=torch.float32, device=bnll.device))
+    #         tnll -= bnll.sum().item()
+    #         vote = prob.exp().mean(dim=1)
+    #         pred = vote.argmax(dim=1)
 
-            y_miss = pred != by
-            if y_miss.sum().item() > 0:
-                nll_miss -= bnll[y_miss].sum().item()
-            acc += (pred == by).sum().item()
-    nll_miss /= len(test_loader.dataset) - acc
-    tnll /= len(test_loader.dataset)
-    acc /= len(test_loader.dataset)
-    print("Test data: acc %.4f, nll %.4f, nll miss %.4f" % (acc, tnll, nll_miss))
+    #         y_miss = pred != by
+    #         if y_miss.sum().item() > 0:
+    #             nll_miss -= bnll[y_miss].sum().item()
+    #         acc += (pred == by).sum().item()
+    # nll_miss /= len(test_loader.dataset) - acc
+    # tnll /= len(test_loader.dataset)
+    # acc /= len(test_loader.dataset)
+    # print("Test data: acc %.4f, nll %.4f, nll miss %.4f" % (acc, tnll, nll_miss))
     print(END_MSG)
 
 

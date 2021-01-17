@@ -180,7 +180,7 @@ def get_model(args, dataloader):
 
 
 def get_dataloader(args):
-    get_train_loader = get_dali_train_loader(dali_cpu=False)
+    get_train_loader = get_dali_train_loader(dali_cpu=True)
     get_val_loader = get_dali_val_loader()
     train_loader, train_loader_len = get_train_loader(
         path=[f"data/imagenet/tf_records/train/train-{i:05d}-of-01024" for i in range(1024)],

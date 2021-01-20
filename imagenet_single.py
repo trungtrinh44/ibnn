@@ -64,6 +64,8 @@ def main():
                         type=int, help='Testing frequency')
     parser.add_argument('--start_epoch', default=0,
                         type=int, help='Start from epoch')
+    parser.add_argument('--start_checkpoint', default="",
+                        type=str, help='Start checkpoint')
     parser.add_argument('--schedule', help='lr schedule',
                         action=StoreDictKeyPair, keys=('det', 'sto'),
                         default={'det': [(0.1, 30), (0.01, 60), (0.001, 80)], 'sto': []})
@@ -74,6 +76,7 @@ def main():
     parser.add_argument('--workers', default=4, type=int, help='number of data loading workers (default: 4)')
     parser.add_argument('--traindir', default='data/imagenet/train.lmdb', type=str)
     parser.add_argument('--valdir', default='data/imagenet/val.lmdb', type=str)
+    parser.add_argument('--not_normalize', action='store_true')
     args = parser.parse_args()
     args.local_rank = int(os.environ["LOCAL_RANK"])
     args.rank = int(os.environ["RANK"])
@@ -94,12 +97,12 @@ def main():
     random.seed(args.seed + args.local_rank)
     train(args)
 
-def get_kl_weight(iteration, args):
+def get_kl_weight(epoch, args):
     kl_max = args.kl_weight['kl_max']
     kl_min = args.kl_weight['kl_min']
-    last_iter = args.kl_weight['last_iter']*args.step_per_epoch
+    last_iter = args.kl_weight['last_iter']
     value = (kl_max-kl_min)/last_iter
-    return min(kl_max, kl_min + iteration*value)
+    return min(kl_max, kl_min + epoch*value)
 
 
 def schedule(step, steps_per_epoch, warm_up, multipliers):
@@ -139,19 +142,16 @@ def get_model(args, dataloader):
     model = resnet50(deterministic_pretrained=args.use_pretrained, n_components=args.n_components,
                      prior_mean=args.prior['mean'], prior_std=args.prior['std'], posterior_mean_init=args.posterior['mean_init'], posterior_std_init=args.posterior['std_init'])
     model.cuda()
+    if args.start_checkpoint != "":
+        model.load_state_dict(torch.load(args.start_checkpoint))
     model = nn.SyncBatchNorm.convert_sync_batchnorm(model)
     detp = []
     stop = []
-    bnp = []
     for name, param in model.named_parameters():
         if 'posterior' in name or 'prior' in name:
             stop.append(param)
         else:
             detp.append(param)
-    for n in model.modules():
-        if isinstance(n, torch.nn.modules.batchnorm._BatchNorm):
-            bnp.extend([n.weight, n.bias])
-    detp = list(set(detp) - set(bnp))
     optimizer = torch.optim.SGD(
         [{
             'params': detp,
@@ -161,19 +161,11 @@ def get_model(args, dataloader):
             'params': stop,
             'initial_lr': args.sto_params['lr'],
             **args.sto_params
-        }, {
-            'params': bnp,
-            'lr': args.det_params['lr'],
-            'initial_lr': args.det_params['lr'],
-            'weight_decay': 0.0
         }], **args.sgd_params)
     scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, [
-        lambda step: lr_cosine_policy(epoch=step, total_epochs=args.num_epochs*step_per_epoch, 
-                                      warmup_length=args.warmup*step_per_epoch), 
-        lambda step: schedule(step, step_per_epoch, args.warmup, args.schedule['sto']), 
-        lambda step: lr_cosine_policy(epoch=step, total_epochs=args.num_epochs*step_per_epoch, 
-                                      warmup_length=args.warmup*step_per_epoch)
-    ])
+        lambda step: schedule(step, step_per_epoch, args.warmup, args.schedule['det']), 
+        lambda step: schedule(step, step_per_epoch, args.warmup, args.schedule['sto'])
+    ], last_epoch=step_per_epoch*args.start_epoch-1)
     args.step_per_epoch = step_per_epoch
     model = DDP(model, device_ids=[args.gpu])
     return model, optimizer, scheduler
@@ -190,6 +182,7 @@ def get_dataloader(args):
         one_hot=False,
         start_epoch=args.start_epoch,
         workers=args.workers,
+        normalize=not args.not_normalize
     )
 
     val_loader, val_loader_len = get_val_loader(
@@ -198,7 +191,8 @@ def get_dataloader(args):
         batch_size=args.batch_size["test"],
         num_classes=1000,
         one_hot=False,
-        workers=args.workers
+        workers=args.workers,
+        normalize=not args.not_normalize
     )
 
     return train_loader, val_loader, train_loader_len, val_loader_len
@@ -241,14 +235,13 @@ def train(args):
     checkpoint_dir = os.path.join(args.root, 'checkpoint_{}.pt')
     model.train()
     scaler = torch.cuda.amp.GradScaler()
-    iteration = 0
-    for i in range(args.num_epochs):
+    iteration = args.start_epoch
+    for i in range(args.start_epoch, args.num_epochs):
         t0 = time.time()
         lls = []
         for bx, by in train_loader:
             optimizer.zero_grad()
-            klw = get_kl_weight(iteration, args)
-            iteration += 1
+            klw = get_kl_weight(i, args)
             with torch.cuda.amp.autocast():
                 loglike, kl = vb_loss(model, bx, by, args.num_sample['train'])
                 loss = loglike + klw*kl/(n_batch*args.total_batch_size)

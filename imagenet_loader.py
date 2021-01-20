@@ -54,7 +54,7 @@ def load_jpeg_from_file(path, cuda=True, fp16=False):
 
 class HybridTrainPipe(Pipeline):
     def __init__(
-        self, batch_size, num_threads, device_id, path, index_path, crop, dali_cpu=False
+        self, batch_size, num_threads, device_id, path, index_path, crop, dali_cpu=False, normalize=True
     ):
         super(HybridTrainPipe, self).__init__(
             batch_size, num_threads, device_id, seed=12 + device_id
@@ -114,8 +114,8 @@ class HybridTrainPipe(Pipeline):
             dtype=types.FLOAT,
             output_layout=types.NCHW,
             crop=(crop, crop),
-            mean=[0.485 * 255, 0.456 * 255, 0.406 * 255],
-            std=[0.229 * 255, 0.224 * 255, 0.225 * 255],
+            mean=[0.485 * 255, 0.456 * 255, 0.406 * 255] if normalize else [0.0, 0.0, 0.0],
+            std=[0.229 * 255, 0.224 * 255, 0.225 * 255] if normalize else [1.0, 1.0, 1.0],
         )
         self.coin = ops.CoinFlip(probability=0.5)
 
@@ -131,7 +131,7 @@ class HybridTrainPipe(Pipeline):
 
 
 class HybridValPipe(Pipeline):
-    def __init__(self, batch_size, num_threads, device_id, path, index_path, crop, size):
+    def __init__(self, batch_size, num_threads, device_id, path, index_path, crop, size, normalize=True):
         super(HybridValPipe, self).__init__(
             batch_size, num_threads, device_id, seed=12 + device_id
         )
@@ -170,8 +170,8 @@ class HybridValPipe(Pipeline):
             dtype=types.FLOAT,
             output_layout=types.NCHW,
             crop=(crop, crop),
-            mean=[0.485 * 255, 0.456 * 255, 0.406 * 255],
-            std=[0.229 * 255, 0.224 * 255, 0.225 * 255],
+            mean=[0.485 * 255, 0.456 * 255, 0.406 * 255] if normalize else [0.0, 0.0, 0.0],
+            std=[0.229 * 255, 0.224 * 255, 0.225 * 255] if normalize else [1.0, 1.0, 1.0],
         )
 
     def define_graph(self):
@@ -217,6 +217,7 @@ def get_dali_train_loader(dali_cpu=False):
         workers=5,
         _worker_init_fn=None,
         fp16=False,
+        normalize=True,
         memory_format=torch.contiguous_format,
     ):
         if torch.distributed.is_initialized():
@@ -235,6 +236,7 @@ def get_dali_train_loader(dali_cpu=False):
             index_path=index_path,
             crop=224,
             dali_cpu=dali_cpu,
+            normalize=normalize
         )
 
         pipe.build()
@@ -260,6 +262,7 @@ def get_dali_val_loader():
         workers=5,
         _worker_init_fn=None,
         fp16=False,
+        normalize=True,
         memory_format=torch.contiguous_format,
     ):
         if torch.distributed.is_initialized():
@@ -277,6 +280,7 @@ def get_dali_val_loader():
             index_path=index_path,
             crop=224,
             size=256,
+            normalize=normalize
         )
 
         pipe.build()

@@ -100,7 +100,7 @@ def get_distributed_data_loader(dataset, num_replicas, rank, train_batch_size=64
         
         return train_loader, test_loader, train_sampler, test_sampler
 
-def get_data_loader(dataset, batch_size=64, test_batch_size=32, validation=False, validation_fraction=0.1, random_state=42, root_dir='data/', test_only=False, train_only=False, augment=True, degree=0):
+def get_data_loader(dataset, batch_size=64, num_workers=4, test_batch_size=32, validation=False, validation_fraction=0.1, random_state=42, root_dir='data/', test_only=False, train_only=False, augment=True, degree=0):
     if dataset == 'mnist' and degree != 0:
         test_data = torchvision.datasets.MNIST(root_dir, train=False, download=True,
                                                transform=torchvision.transforms.Compose([
@@ -246,7 +246,7 @@ def get_data_loader(dataset, batch_size=64, test_batch_size=32, validation=False
         test_data = torchvision.datasets.CIFAR10(root_dir, train=False, download=True,
                                                  transform=transform)
         test_loader = DataLoader(
-            test_data, batch_size=test_batch_size, pin_memory=True, shuffle=False)
+            test_data, batch_size=test_batch_size, pin_memory=True, shuffle=False, num_workers=num_workers)
         if test_only:
             return test_loader
         if validation:
@@ -263,7 +263,7 @@ def get_data_loader(dataset, batch_size=64, test_batch_size=32, validation=False
             return train_loader, valid_loader, test_loader
         else:
             train_loader = DataLoader(
-                train_data, batch_size=batch_size, pin_memory=True, shuffle=True, drop_last=True)
+                train_data, batch_size=batch_size, pin_memory=True, shuffle=True, drop_last=True, num_workers=num_workers)
             return train_loader, test_loader
     if dataset == 'cifar100':
         transform = torchvision.transforms.Compose([
@@ -286,7 +286,7 @@ def get_data_loader(dataset, batch_size=64, test_batch_size=32, validation=False
         test_data = torchvision.datasets.CIFAR100(root_dir, train=False, download=True,
                                                  transform=transform)
         test_loader = DataLoader(
-            test_data, batch_size=test_batch_size, pin_memory=True, shuffle=False)
+            test_data, batch_size=test_batch_size, pin_memory=True, shuffle=False, num_workers=num_workers)
         if test_only:
             return test_loader
         if validation:
@@ -303,7 +303,7 @@ def get_data_loader(dataset, batch_size=64, test_batch_size=32, validation=False
             return train_loader, valid_loader, test_loader
         else:
             train_loader = DataLoader(
-                train_data, batch_size=batch_size, pin_memory=True, shuffle=True, drop_last=True)
+                train_data, batch_size=batch_size, pin_memory=True, shuffle=True, drop_last=True, num_workers=num_workers)
             return train_loader, test_loader
     if dataset == 'vgg_cifar10':
         transform = torchvision.transforms.Compose([
@@ -326,7 +326,7 @@ def get_data_loader(dataset, batch_size=64, test_batch_size=32, validation=False
         test_data = torchvision.datasets.CIFAR10(root_dir, train=False, download=True,
                                                  transform=transform)
         test_loader = DataLoader(
-            test_data, batch_size=test_batch_size, pin_memory=True, shuffle=False)
+            test_data, batch_size=test_batch_size, pin_memory=True, shuffle=False, num_workers=num_workers)
         if test_only:
             return test_loader
         if validation:
@@ -343,7 +343,7 @@ def get_data_loader(dataset, batch_size=64, test_batch_size=32, validation=False
             return train_loader, valid_loader, test_loader
         else:
             train_loader = DataLoader(
-                train_data, batch_size=batch_size, pin_memory=True, shuffle=True, drop_last=True)
+                train_data, batch_size=batch_size, pin_memory=True, shuffle=True, drop_last=True, num_workers=num_workers)
             return train_loader, test_loader
     if dataset == 'vgg_cifar100':
         transform = torchvision.transforms.Compose([
@@ -366,7 +366,7 @@ def get_data_loader(dataset, batch_size=64, test_batch_size=32, validation=False
         test_data = torchvision.datasets.CIFAR100(root_dir, train=False, download=True,
                                                  transform=transform)
         test_loader = DataLoader(
-            test_data, batch_size=test_batch_size, pin_memory=True, shuffle=False)
+            test_data, batch_size=test_batch_size, pin_memory=True, shuffle=False, num_workers=num_workers)
         if test_only:
             return test_loader
         if validation:
@@ -383,7 +383,7 @@ def get_data_loader(dataset, batch_size=64, test_batch_size=32, validation=False
             return train_loader, valid_loader, test_loader
         else:
             train_loader = DataLoader(
-                train_data, batch_size=batch_size, pin_memory=True, shuffle=True, drop_last=True)
+                train_data, batch_size=batch_size, pin_memory=True, shuffle=True, drop_last=True, num_workers=num_workers)
             return train_loader, test_loader
     if dataset == 'svhn_cifar10_test':
         test_data = torchvision.datasets.SVHN(root_dir, split='test', download=True,

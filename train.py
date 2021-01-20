@@ -40,6 +40,7 @@ def my_config():
         'kl_max': 1.0,
         'last_iter': 200
     }
+    num_workers = 4
     batch_size = 128 # Batch size
     test_batch_size = 64
     prior_mean = 1.0 # Mean of the Gaussian prior
@@ -175,8 +176,8 @@ def get_model(model_name, num_classes, prior_mean, prior_std, n_components, devi
 
 
 @ex.capture
-def get_dataloader(batch_size, test_batch_size, validation, validation_fraction, seed, dataset):
-    return get_data_loader(dataset, batch_size, test_batch_size, validation, validation_fraction, seed)
+def get_dataloader(num_workers, batch_size, test_batch_size, validation, validation_fraction, seed, dataset):
+    return get_data_loader(dataset, batch_size, num_workers, test_batch_size, validation, validation_fraction, seed)
 
 
 @ex.capture
@@ -223,10 +224,12 @@ def main(_run, model_name, num_train_sample, num_test_sample, device, validation
     if model_name.startswith('Sto'):
         model.train()
         best_nll = float('inf')
+#        import time
+#        t0 = time.time()
         for i in range(num_epochs):
             for bx, by in train_loader:
-                bx = bx.to(device)
-                by = by.to(device)
+                bx = bx.cuda(non_blocking=True)
+                by = by.cuda(non_blocking=True)
                 optimizer.zero_grad()
                 loglike, kl = model.vb_loss(bx, by, num_train_sample)
                 klw = get_kl_weight(epoch=i)
@@ -235,6 +238,7 @@ def main(_run, model_name, num_train_sample, num_test_sample, device, validation
                 optimizer.step()
                 ex.log_scalar('loglike.train', loglike.item(), i)
                 ex.log_scalar('kl.train', kl.item(), i)
+#                print(time.time()-t0)
             scheduler.step()
             if (i+1) % logging_freq == 0:
                 logger.info("VB Epoch %d: loglike: %.4f, kl: %.4f, kl weight: %.4f, lr1: %.4f, lr2: %.4f",

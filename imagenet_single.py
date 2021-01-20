@@ -126,14 +126,9 @@ def vb_loss(model, x, y, n_sample):
 
 def parallel_nll(model, x, y, n_sample):
     n_components = model.module.n_components
-    indices = torch.empty(x.size(0)*n_sample,
-                          dtype=torch.long, device=x.device)
-    prob = torch.cat([model(x, n_sample, indices=torch.full((x.size(0)*n_sample,), idx,
-                                                            out=indices, device=x.device, dtype=torch.long)) for idx in range(n_components)], dim=1)
-    logp = D.Categorical(logits=prob).log_prob(
-        y.unsqueeze(1).expand(-1, n_components*n_sample))
-    logp = torch.logsumexp(logp, 1) - torch.log(torch.tensor(n_components *
-                                                             n_sample, dtype=logp.dtype, device=x.device))
+    prob = model(x, n_sample * n_components)
+    logp = D.Categorical(logits=prob).log_prob(y.unsqueeze(1).expand(-1, n_components*n_sample))
+    logp = torch.logsumexp(logp, 1) - torch.log(torch.tensor(n_components * n_sample, dtype=logp.dtype, device=x.device))
     return -logp.mean(), prob
 
 

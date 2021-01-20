@@ -139,9 +139,9 @@ class EnsembleBatchNorm2d(nn.BatchNorm2d):
         input = input.view(-1, self.n_components, *input.shape[1:])
         # calculate running estimates
         if self.training:
-            mean = input.mean([0, 3, 4])
+            mean = input.float().mean([0, 3, 4])
             # use biased var in train
-            var = input.var([0, 3, 4], unbiased=False)
+            var = input.float().var([0, 3, 4], unbiased=False)
             n = input.numel() / input.size(1) / input.size(2)
             with torch.no_grad():
                 self.running_mean = exponential_average_factor * mean\
@@ -152,7 +152,6 @@ class EnsembleBatchNorm2d(nn.BatchNorm2d):
         else:
             mean = self.running_mean
             var = self.running_var
-
         input = (input - mean[None, :, :, None, None]) / (torch.sqrt(var[None, :, :, None, None] + self.eps))
         if self.affine:
             input = input * self.weight[None, :, :, None, None] + self.bias[None, :, :, None, None]

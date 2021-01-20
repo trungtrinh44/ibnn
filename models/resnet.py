@@ -11,7 +11,7 @@ import torch.nn.functional as F
 import torch.distributions as D
 import torch.nn.init as init
 
-from .utils import StoLayer, StoLinear, StoConv2d, BayesianLayer, BayesianConv2d, BayesianLinear, EnsembleBatchNorm
+from .utils import StoLayer, StoLinear, StoConv2d, BayesianLayer, BayesianConv2d, BayesianLinear, EnsembleBatchNorm2d
 
 __all__ = ["DetWideResNet28x10", "StoWideResNet28x10", "BayesianWideResNet28x10"]
 
@@ -81,9 +81,9 @@ class StoWideBasic(nn.Module):
 
     def __init__(self, in_planes, planes, stride, n_components, prior_mean, prior_std, posterior_mean_init, posterior_std_init):
         super(StoWideBasic, self).__init__()
-        self.bn1 = EnsembleBatchNorm([nn.BatchNorm2d(in_planes) for _ in range(n_components)])
+        self.bn1 = EnsembleBatchNorm2d(in_planes, n_components)
         self.conv1 = StoConv2d(in_planes, planes, kernel_size=3, padding=1, bias=True, n_components=n_components, prior_mean=prior_mean, prior_std=prior_std, posterior_mean_init=posterior_mean_init, posterior_std_init=posterior_std_init)
-        self.bn2 = EnsembleBatchNorm([nn.BatchNorm2d(planes) for _ in range(n_components)])
+        self.bn2 = EnsembleBatchNorm2d(planes, n_components)
         self.conv2 = StoConv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=True, n_components=n_components, prior_mean=prior_mean, prior_std=prior_std, posterior_mean_init=posterior_mean_init, posterior_std_init=posterior_std_init)
         if stride != 1 or in_planes != planes:
             self.shortcut = StoConv2d(in_planes, planes, kernel_size=1, stride=stride, bias=True, n_components=n_components, prior_mean=prior_mean, prior_std=prior_std, posterior_mean_init=posterior_mean_init, posterior_std_init=posterior_std_init)
@@ -153,7 +153,7 @@ class StoWideResNet(nn.Module):
         self.layer1 = self._wide_layer(StoWideBasic, nstages[1], n, n_components, prior_mean, prior_std, stride=1, posterior_mean_init=posterior_mean_init, posterior_std_init=posterior_std_init)
         self.layer2 = self._wide_layer(StoWideBasic, nstages[2], n, n_components, prior_mean, prior_std, stride=2, posterior_mean_init=posterior_mean_init, posterior_std_init=posterior_std_init)
         self.layer3 = self._wide_layer(StoWideBasic, nstages[3], n, n_components, prior_mean, prior_std, stride=2, posterior_mean_init=posterior_mean_init, posterior_std_init=posterior_std_init)
-        self.bn1 = EnsembleBatchNorm([nn.BatchNorm2d(nstages[3], momentum=0.9) for _ in range(n_components)])
+        self.bn1 = EnsembleBatchNorm2d(nstages[3], n_components, momentum=0.9)
         self.linear = StoLinear(nstages[3], num_classes, n_components=n_components, prior_mean=prior_mean, prior_std=prior_std, posterior_mean_init=posterior_mean_init, posterior_std_init=posterior_std_init)
         self.n_components = n_components
         self.sto_modules = [

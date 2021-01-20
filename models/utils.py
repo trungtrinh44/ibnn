@@ -116,47 +116,17 @@ class StoLayer(object):
     def sto_extra_repr(self):
         return f"n_components={self.posterior_U_mean.size(0)}, prior_mean={self.prior_mean.data.item()}, prior_std={self.prior_std.data.item()}, posterior_mean_init={self.posterior_mean_init}, posterior_std_init={self.posterior_std_init}"
 
-class EnsembleBatchNorm2d(nn.BatchNorm2d):
+class EnsembleBatchNorm2d(nn.Module):
     def __init__(self, num_features, n_components, eps=1e-5, momentum=0.1,
                  affine=True, track_running_stats=True):
-        super(EnsembleBatchNorm2d, self).__init__((n_components, num_features), eps, momentum, affine, track_running_stats)
+        super(EnsembleBatchNorm2d, self).__init__()
         self.n_components = n_components
-        self.weight = nn.Parameter(torch.ones((n_components, num_features)))
-        self.bias = nn.Parameter(torch.zeros((n_components, num_features)))
+        self.bn = nn.BatchNorm2d(n_components * num_features, eps, momentum, affine, track_running_stats)
     
     def forward(self, input):
-        self._check_input_dim(input)
-
-        exponential_average_factor = 0.0
-
-        if self.training and self.track_running_stats:
-            if self.num_batches_tracked is not None:
-                self.num_batches_tracked += 1
-                if self.momentum is None:  # use cumulative moving average
-                    exponential_average_factor = 1.0 / float(self.num_batches_tracked)
-                else:  # use exponential moving average
-                    exponential_average_factor = self.momentum
-        input = input.view(-1, self.n_components, *input.shape[1:])
-        # calculate running estimates
-        if self.training:
-            mean = input.float().mean([0, 3, 4])
-            # use biased var in train
-            var = input.float().var([0, 3, 4], unbiased=False)
-            n = input.numel() / input.size(1) / input.size(2)
-            with torch.no_grad():
-                self.running_mean = exponential_average_factor * mean\
-                    + (1 - exponential_average_factor) * self.running_mean
-                # update running_var with unbiased var
-                self.running_var = exponential_average_factor * var * n / (n - 1)\
-                    + (1 - exponential_average_factor) * self.running_var
-        else:
-            mean = self.running_mean
-            var = self.running_var
-        input = (input - mean[None, :, :, None, None]) / (torch.sqrt(var[None, :, :, None, None] + self.eps))
-        if self.affine:
-            input = input * self.weight[None, :, :, None, None] + self.bias[None, :, :, None, None]
-
-        return input.view(-1, *input.shape[2:])
+        output = input.view(-1, self.n_components*input.shape[1], *input.shape[2:])
+        output = self.bn(output)
+        return output.view(*input.shape)
 
 class StoConv2d(nn.Conv2d, StoLayer):
     def __init__(

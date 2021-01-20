@@ -41,6 +41,7 @@ def my_config():
         'last_iter': 200
     }
     batch_size = 128 # Batch size
+    test_batch_size = 64
     prior_mean = 1.0 # Mean of the Gaussian prior
     prior_std = 0.5 # Std of the Gaussian prior
     n_components = 2 # Number of components in the posterior
@@ -174,8 +175,8 @@ def get_model(model_name, num_classes, prior_mean, prior_std, n_components, devi
 
 
 @ex.capture
-def get_dataloader(batch_size, validation, validation_fraction, seed, dataset):
-    return get_data_loader(dataset, batch_size, validation, validation_fraction, seed)
+def get_dataloader(batch_size, test_batch_size, validation, validation_fraction, seed, dataset):
+    return get_data_loader(dataset, batch_size, test_batch_size, validation, validation_fraction, seed)
 
 
 @ex.capture

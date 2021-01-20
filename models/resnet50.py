@@ -222,7 +222,7 @@ class StoResNet(nn.Module):
         return -logp.mean(), log_prob
 
     def _make_layer(self, block: Type[Union[StoBasicBlock, StoBottleneck]], planes: int, blocks: int,
-                    stride: int = 1, dilate: bool = False, n_components=None, prior_mean=None, prior_std=None, posterior_mean_init=None, posterior_std_init=None) -> StoSequential:
+                    stride: int = 1, dilate: bool = False, n_components=None, prior_mean=None, prior_std=None, posterior_mean_init=None, posterior_std_init=None) -> nn.Sequential:
         norm_layer = self._norm_layer
         downsample = None
         previous_dilation = self.dilation

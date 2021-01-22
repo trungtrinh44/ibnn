@@ -136,9 +136,9 @@ def get_model(args, dataloader):
     args.step_per_epoch = step_per_epoch = 1281167 // args.total_batch_size
     model = resnet50(deterministic_pretrained=args.use_pretrained, n_components=args.n_components,
                      prior_mean=args.prior['mean'], prior_std=args.prior['std'], posterior_mean_init=args.posterior['mean_init'], posterior_std_init=args.posterior['std_init'])
-    model.cuda()
     if args.start_checkpoint != "":
-        model.load_state_dict(torch.load(args.start_checkpoint))
+        model.load_state_dict(torch.load(args.start_checkpoint, 'cpu'))
+    model.cuda()
     model = nn.SyncBatchNorm.convert_sync_batchnorm(model)
     detp = []
     stop = []
@@ -213,8 +213,8 @@ def test_nll(model, loader, num_sample):
                 bnll, pred = parallel_nll(model, bx, by, num_sample)
             nll += bnll.item() * bx.size(0)
             acc += (pred.exp().mean(1).argmax(-1) == by).sum().item()
-        acc /= count
-        nll /= count
+        acc /= 50000
+        nll /= 50000
     return nll, acc
 
 

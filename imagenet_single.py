@@ -158,8 +158,10 @@ def get_model(args, dataloader):
             **args.sto_params
         }], **args.sgd_params)
     scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, [
-        lambda step: schedule(step, step_per_epoch, args.warmup, args.schedule['det']), 
-        lambda step: schedule(step, step_per_epoch, args.warmup, args.schedule['sto'])
+        lambda step: lr_cosine_policy(epoch=step, total_epochs=args.num_epochs*step_per_epoch, 
+                                      warmup_length=args.warmup*step_per_epoch), 
+        lambda step: lr_cosine_policy(epoch=step, total_epochs=args.num_epochs*step_per_epoch, 
+                                      warmup_length=args.warmup*step_per_epoch)
     ], last_epoch=step_per_epoch*args.start_epoch-1)
     args.step_per_epoch = step_per_epoch
     model = DDP(model, device_ids=[args.gpu])

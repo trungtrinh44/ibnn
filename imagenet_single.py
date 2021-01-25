@@ -11,9 +11,11 @@ import torch.multiprocessing as mp
 import torch.nn as nn
 import torchvision
 import json
-from torch.nn.parallel import DistributedDataParallel as DDP
+#from torch.nn.parallel import DistributedDataParallel as DDP
+from apex.parallel import DistributedDataParallel as DDP
+from apex.parallel import convert_syncbn_model
 import random
-
+from apex import amp
 from imagenet_loader import get_dali_train_loader, get_dali_val_loader
 from models import count_parameters
 from models.resnet50 import resnet50
@@ -139,7 +141,7 @@ def get_model(args, dataloader):
     if args.start_checkpoint != "":
         model.load_state_dict(torch.load(args.start_checkpoint, 'cpu'))
     model.cuda()
-    model = nn.SyncBatchNorm.convert_sync_batchnorm(model)
+    model = convert_sync_batchnorm(model)
     detp = []
     stop = []
     for name, param in model.named_parameters():
@@ -158,13 +160,17 @@ def get_model(args, dataloader):
             **args.sto_params
         }], **args.sgd_params)
     scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, [
-        lambda step: lr_cosine_policy(epoch=step, total_epochs=args.num_epochs*step_per_epoch, 
-                                      warmup_length=args.warmup*step_per_epoch), 
-        lambda step: lr_cosine_policy(epoch=step, total_epochs=args.num_epochs*step_per_epoch, 
-                                      warmup_length=args.warmup*step_per_epoch)
+        lambda step: schedule(step, step_per_epoch, args.warmup, args.schedule['det']), 
+        lambda step: schedule(step, step_per_epoch, args.warmup, args.schedule['sto'])
     ], last_epoch=step_per_epoch*args.start_epoch-1)
     args.step_per_epoch = step_per_epoch
-    model = DDP(model, device_ids=[args.gpu])
+    model, optimizer = amp.initialize(
+        model,
+        optimizer,
+        opt_level="O1",
+        loss_scale=128 #"dynamic" if args.dynamic_loss_scale else args.static_loss_scale,
+    )
+    model = DDP(model)
     return model, optimizer, scheduler
 
 
@@ -208,13 +214,11 @@ def test_nll(model, loader, num_sample):
     with torch.no_grad():
         nll = 0
         acc = 0
-        count = 0
         for bx, by in loader:
-            count += bx.size(0)
-            with torch.cuda.amp.autocast():
-                bnll, pred = parallel_nll(model, bx, by, num_sample)
+            bnll, pred = parallel_nll(model, bx, by, num_sample)
             nll += bnll.item() * bx.size(0)
             acc += (pred.exp().mean(1).argmax(-1) == by).sum().item()
+            torch.cuda.synchronize()
         acc /= 50000
         nll /= 50000
     return nll, acc
@@ -231,21 +235,25 @@ def train(args):
         print(str(model))
     checkpoint_dir = os.path.join(args.root, 'checkpoint_{}.pt')
     model.train()
-    scaler = torch.cuda.amp.GradScaler()
+    # scaler = torch.cuda.amp.GradScaler()
     iteration = args.start_epoch
     for i in range(args.start_epoch, args.num_epochs):
         t0 = time.time()
         lls = []
         for bx, by in train_loader:
-            optimizer.zero_grad()
+            # optimizer.zero_grad()
             klw = get_kl_weight(i, args)
-            with torch.cuda.amp.autocast():
-                loglike, kl = vb_loss(model, bx, by, args.num_sample['train'])
-                loss = loglike + klw*kl/(n_batch*args.total_batch_size)
-            scaler.scale(loss).backward()
-            scaler.step(optimizer)
-            scaler.update()
+            loglike, kl = vb_loss(model, bx, by, args.num_sample['train'])
+            loss = loglike + klw*kl/(n_batch*args.total_batch_size)
+            with amp.scale_loss(loss, optimizer) as scaled_loss:
+                 scaled_loss.backward()
+            optimizer.step()
+            optimizer.zero_grad()
+            # scaler.scale(loss).backward()
+            # scaler.step(optimizer)
+            # scaler.update()
             scheduler.step()
+            torch.cuda.synchronize()
             print("VB Epoch %d: loglike: %.4f, kl: %.4f, kl weight: %.4f, lr1: %.4f, lr2: %.4f, time: %.2f" % (i, loglike.item(), kl.item(), klw, optimizer.param_groups[0]['lr'], optimizer.param_groups[1]['lr'], time.time()-t0))
             lls.append(loglike.item())
         t1 = time.time()
@@ -262,35 +270,6 @@ def train(args):
     if args.rank == 0:
         torch.save(model.module.state_dict(), checkpoint_dir.format('final'))
         print('Save checkpoint')
-    # tnll = 0
-    # acc = 0
-    # nll_miss = 0
-    # model.eval()
-    # with torch.no_grad():
-    #     for bx, by in test_loader:
-    #         bx = bx.cuda(non_blocking=True)
-    #         by = by.cuda(non_blocking=True)
-    #         indices = torch.empty(
-    #             bx.size(0)*args.num_sample['test'], dtype=torch.long, device=bx.device)
-    #         prob = torch.cat([model(bx, args.num_sample['test'], indices=torch.full((bx.size(0)*args.num_sample['test'],),
-    #                                                                                 idx, out=indices, device=bx.device, dtype=torch.long)) for idx in range(model.module.n_components)], dim=1)
-    #         y_target = by.unsqueeze(
-    #             1).expand(-1, args.num_sample['test']*model.module.n_components)
-    #         bnll = D.Categorical(logits=prob).log_prob(y_target)
-    #         bnll = torch.logsumexp(bnll, dim=1) - torch.log(torch.tensor(
-    #             args.num_sample['test']*model.module.n_components, dtype=torch.float32, device=bnll.device))
-    #         tnll -= bnll.sum().item()
-    #         vote = prob.exp().mean(dim=1)
-    #         pred = vote.argmax(dim=1)
-
-    #         y_miss = pred != by
-    #         if y_miss.sum().item() > 0:
-    #             nll_miss -= bnll[y_miss].sum().item()
-    #         acc += (pred == by).sum().item()
-    # nll_miss /= len(test_loader.dataset) - acc
-    # tnll /= len(test_loader.dataset)
-    # acc /= len(test_loader.dataset)
-    # print("Test data: acc %.4f, nll %.4f, nll miss %.4f" % (acc, tnll, nll_miss))
     print(END_MSG)
 
 

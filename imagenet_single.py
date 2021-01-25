@@ -261,7 +261,12 @@ def train(args):
             print("VB Epoch %d: loglike: %.4f, kl: %.4f, kl weight: %.4f, lr1: %.4f, lr2: %.4f, time: %.1f" % (i, np.mean(lls).item(), kl.item(), klw, optimizer.param_groups[0]['lr'], optimizer.param_groups[1]['lr'], t1-t0))
         if (i+1) % args.test_freq == 0:
             if args.rank == 0:
-                torch.save(model.module.state_dict(), checkpoint_dir.format(str(i)))
+                amp_checkpoint = {
+                    'model': model.module.state_dict(),
+                    'optimizer': optimizer.state_dict(),
+                    'amp': amp.state_dict()
+                }
+                torch.save(amp_checkpoint, checkpoint_dir.format(str(i)))
                 print('Save checkpoint')
             nll, acc = test_nll(model, test_loader,
                                 args.num_sample['test'])

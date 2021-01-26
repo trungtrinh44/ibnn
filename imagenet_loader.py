@@ -160,7 +160,7 @@ class HybridValPipe(Pipeline):
             shard_id = rank,
             random_shuffle = False,
             num_shards = world_size,
-            read_ahead = True
+            read_ahead = False
         )
 
         self.decode = ops.ImageDecoder(device="mixed", output_type=types.RGB)

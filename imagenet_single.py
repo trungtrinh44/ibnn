@@ -11,11 +11,9 @@ import torch.multiprocessing as mp
 import torch.nn as nn
 import torchvision
 import json
-#from torch.nn.parallel import DistributedDataParallel as DDP
-from apex.parallel import DistributedDataParallel as DDP
-from apex.parallel import convert_syncbn_model
+from torch.nn.parallel import DistributedDataParallel as DDP
 import random
-from apex import amp
+
 from imagenet_loader import get_dali_train_loader, get_dali_val_loader
 from models import count_parameters
 from models.resnet50 import resnet50
@@ -138,10 +136,8 @@ def get_model(args, dataloader):
     args.step_per_epoch = step_per_epoch = 1281167 // args.total_batch_size
     model = resnet50(deterministic_pretrained=args.use_pretrained, n_components=args.n_components,
                      prior_mean=args.prior['mean'], prior_std=args.prior['std'], posterior_mean_init=args.posterior['mean_init'], posterior_std_init=args.posterior['std_init'])
-    if args.start_checkpoint != "":
-        model.load_state_dict(torch.load(args.start_checkpoint, 'cpu'))
     model.cuda()
-    model = convert_sync_batchnorm(model)
+    model = nn.SyncBatchNorm.convert_sync_batchnorm(model)
     detp = []
     stop = []
     for name, param in model.named_parameters():
@@ -159,18 +155,18 @@ def get_model(args, dataloader):
             'initial_lr': args.sto_params['lr'],
             **args.sto_params
         }], **args.sgd_params)
+#    scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, [
+#        lambda step: lr_cosine_policy(epoch=step, total_epochs=args.num_epochs*step_per_epoch, 
+#                                      warmup_length=args.warmup*step_per_epoch), 
+#        lambda step: lr_cosine_policy(epoch=step, total_epochs=args.num_epochs*step_per_epoch, 
+#                                      warmup_length=args.warmup*step_per_epoch)
+#    ])
     scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, [
-        lambda step: schedule(step, step_per_epoch, args.warmup, args.schedule['det']), 
+        lambda step: schedule(step, step_per_epoch, args.warmup, args.schedule['det']),
         lambda step: schedule(step, step_per_epoch, args.warmup, args.schedule['sto'])
-    ], last_epoch=step_per_epoch*args.start_epoch-1)
+    ])
     args.step_per_epoch = step_per_epoch
-    model, optimizer = amp.initialize(
-        model,
-        optimizer,
-        opt_level="O1",
-        loss_scale=128 #"dynamic" if args.dynamic_loss_scale else args.static_loss_scale,
-    )
-    model = DDP(model)
+    model = DDP(model, device_ids=[args.gpu])
     return model, optimizer, scheduler
 
 
@@ -214,8 +210,11 @@ def test_nll(model, loader, num_sample):
     with torch.no_grad():
         nll = 0
         acc = 0
+        count = 0
         for bx, by in loader:
-            bnll, pred = parallel_nll(model, bx, by, num_sample)
+            count += bx.size(0)
+            with torch.cuda.amp.autocast():
+                bnll, pred = parallel_nll(model, bx, by, num_sample)
             nll += bnll.item() * bx.size(0)
             acc += (pred.exp().mean(1).argmax(-1) == by).sum().item()
             torch.cuda.synchronize()
@@ -235,38 +234,37 @@ def train(args):
         print(str(model))
     checkpoint_dir = os.path.join(args.root, 'checkpoint_{}.pt')
     model.train()
-    # scaler = torch.cuda.amp.GradScaler()
+    scaler = torch.cuda.amp.GradScaler(init_scale=4096.0, growth_factor=2.0, backoff_factor=0.5, growth_interval=2000)
     iteration = args.start_epoch
+    if args.start_checkpoint != "":
+        amp_cp = torch.load(args.start_checkpoint)
+        model.module.load_state_dict(amp_cp['model'])
+        scaler.load_state_dict(amp_cp['scaler'])
+        optimizer.load_state_dict(amp_cp['optimizer'])
+        scheduler.load_state_dict(amp_cp['scheduler'])
     for i in range(args.start_epoch, args.num_epochs):
         t0 = time.time()
         lls = []
         for bx, by in train_loader:
-            # optimizer.zero_grad()
-            klw = get_kl_weight(i, args)
-            loglike, kl = vb_loss(model, bx, by, args.num_sample['train'])
-            loss = loglike + klw*kl/(n_batch*args.total_batch_size)
-            with amp.scale_loss(loss, optimizer) as scaled_loss:
-                 scaled_loss.backward()
-            optimizer.step()
             optimizer.zero_grad()
-            # scaler.scale(loss).backward()
-            # scaler.step(optimizer)
-            # scaler.update()
+            klw = get_kl_weight(i, args)
+            with torch.cuda.amp.autocast():
+                loglike, kl = vb_loss(model, bx, by, args.num_sample['train'])
+                loss = loglike + float(args.rank==0)*klw*kl/(n_batch*args.batch_size['train'])
+            scaler.scale(loss).backward()
+            scaler.step(optimizer)
+            scaler.update(128.0)
             scheduler.step()
-            torch.cuda.synchronize()
-            print("VB Epoch %d: loglike: %.4f, kl: %.4f, kl weight: %.4f, lr1: %.4f, lr2: %.4f, time: %.2f" % (i, loglike.item(), kl.item(), klw, optimizer.param_groups[0]['lr'], optimizer.param_groups[1]['lr'], time.time()-t0))
+            print("VB Epoch %d: loglike: %.4f, kl: %.4f, kl weight: %.4f, lr1: %.4f, lr2: %.4f, scale: %.1f, time: %.2f" % (i, loglike.item(), kl.item(), klw, optimizer.param_groups[0]['lr'], optimizer.param_groups[1]['lr'], scaler.get_scale(), time.time()-t0))
             lls.append(loglike.item())
+            torch.cuda.synchronize()
         t1 = time.time()
         if (i+1) % args.logging_freq == 0:
             print("VB Epoch %d: loglike: %.4f, kl: %.4f, kl weight: %.4f, lr1: %.4f, lr2: %.4f, time: %.1f" % (i, np.mean(lls).item(), kl.item(), klw, optimizer.param_groups[0]['lr'], optimizer.param_groups[1]['lr'], t1-t0))
         if (i+1) % args.test_freq == 0:
             if args.rank == 0:
-                amp_checkpoint = {
-                    'model': model.module.state_dict(),
-                    'optimizer': optimizer.state_dict(),
-                    'amp': amp.state_dict()
-                }
-                torch.save(amp_checkpoint, checkpoint_dir.format(str(i)))
+                amp_cp = { 'model': model.module.state_dict(), 'scaler': scaler.state_dict(), 'optimizer': optimizer.state_dict(), 'scheduler': scheduler.state_dict() }
+                torch.save(amp_cp, checkpoint_dir.format(str(i)))
                 print('Save checkpoint')
             nll, acc = test_nll(model, test_loader,
                                 args.num_sample['test'])
@@ -275,6 +273,35 @@ def train(args):
     if args.rank == 0:
         torch.save(model.module.state_dict(), checkpoint_dir.format('final'))
         print('Save checkpoint')
+    # tnll = 0
+    # acc = 0
+    # nll_miss = 0
+    # model.eval()
+    # with torch.no_grad():
+    #     for bx, by in test_loader:
+    #         bx = bx.cuda(non_blocking=True)
+    #         by = by.cuda(non_blocking=True)
+    #         indices = torch.empty(
+    #             bx.size(0)*args.num_sample['test'], dtype=torch.long, device=bx.device)
+    #         prob = torch.cat([model(bx, args.num_sample['test'], indices=torch.full((bx.size(0)*args.num_sample['test'],),
+    #                                                                                 idx, out=indices, device=bx.device, dtype=torch.long)) for idx in range(model.module.n_components)], dim=1)
+    #         y_target = by.unsqueeze(
+    #             1).expand(-1, args.num_sample['test']*model.module.n_components)
+    #         bnll = D.Categorical(logits=prob).log_prob(y_target)
+    #         bnll = torch.logsumexp(bnll, dim=1) - torch.log(torch.tensor(
+    #             args.num_sample['test']*model.module.n_components, dtype=torch.float32, device=bnll.device))
+    #         tnll -= bnll.sum().item()
+    #         vote = prob.exp().mean(dim=1)
+    #         pred = vote.argmax(dim=1)
+
+    #         y_miss = pred != by
+    #         if y_miss.sum().item() > 0:
+    #             nll_miss -= bnll[y_miss].sum().item()
+    #         acc += (pred == by).sum().item()
+    # nll_miss /= len(test_loader.dataset) - acc
+    # tnll /= len(test_loader.dataset)
+    # acc /= len(test_loader.dataset)
+    # print("Test data: acc %.4f, nll %.4f, nll miss %.4f" % (acc, tnll, nll_miss))
     print(END_MSG)
 
 

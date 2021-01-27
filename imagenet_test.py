@@ -131,10 +131,6 @@ def train(args):
         'nll': float(tnll),
         'nll_miss': float(nll_miss),
         'ece': float(ece_val),
-        'predictive_entropy': {
-            'mean': float(pred_entropy.mean()),
-            'std': float(pred_entropy.std())
-        },
         **{
             f"top-{k}": float(a) for k, a in enumerate(acc, 1)
         }

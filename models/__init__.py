@@ -18,3 +18,5 @@ def get_model_from_config(config):
         return BayesianWideResNet28x10(config['num_classes'], 1.0, 0.3)
     if model_name == 'RadialVGG16':
         return RadialVGG16(config['num_classes'], config['initial_rho'], config['prior'])
+    if model_name == 'RadialWideResNet28x10':
+        return RadialWideResNet28x10(config['num_classes'], config['initial_rho'], config['prior'])

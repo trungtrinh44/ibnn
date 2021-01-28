@@ -49,7 +49,7 @@ class StoBasicBlock(nn.Module):
     ) -> None:
         super(StoBasicBlock, self).__init__()
         if norm_layer is None:
-            norm_layer = EnsembleBatchNorm2d
+            norm_layer = nn.BatchNorm2d
         if groups != 1 or base_width != 64:
             raise ValueError(
                 'BasicBlock only supports groups=1 and base_width=64')
@@ -58,10 +58,10 @@ class StoBasicBlock(nn.Module):
                 "Dilation > 1 not supported in BasicBlock")
         # Both self.conv1 and self.downsample layers downsample the input when stride != 1
         self.conv1 = conv3x3(inplanes, planes, stride, n_components=n_components, prior_mean=prior_mean, prior_std=prior_std, posterior_mean_init=posterior_mean_init, posterior_std_init=posterior_std_init)
-        self.bn1 = norm_layer(planes, n_components)
+        self.bn1 = norm_layer(planes) #, n_components)
         self.relu = nn.ReLU(inplace=True)
         self.conv2 = conv3x3(planes, planes, n_components=n_components, prior_mean=prior_mean, prior_std=prior_std, posterior_mean_init=posterior_mean_init, posterior_std_init=posterior_std_init)
-        self.bn2 = norm_layer(planes, n_components)
+        self.bn2 = norm_layer(planes) #, n_components)
         self.downsample = downsample
         self.stride = stride
 
@@ -106,15 +106,15 @@ class StoBottleneck(nn.Module):
     ) -> None:
         super(StoBottleneck, self).__init__()
         if norm_layer is None:
-            norm_layer = EnsembleBatchNorm2d
+            norm_layer = nn.BatchNorm2d
         width = int(planes * (base_width / 64.)) * groups
         # Both self.conv2 and self.downsample layers downsample the input when stride != 1
         self.conv1 = conv1x1(inplanes, width, n_components=n_components, prior_mean=prior_mean, prior_std=prior_std, posterior_mean_init=posterior_mean_init, posterior_std_init=posterior_std_init)
-        self.bn1 = norm_layer(width, n_components)
+        self.bn1 = norm_layer(width) #, n_components)
         self.conv2 = conv3x3(width, width, stride, groups, dilation, n_components=n_components, prior_mean=prior_mean, prior_std=prior_std, posterior_mean_init=posterior_mean_init, posterior_std_init=posterior_std_init)
-        self.bn2 = norm_layer(width, n_components)
+        self.bn2 = norm_layer(width) #, n_components)
         self.conv3 = conv1x1(width, planes * self.expansion, n_components=n_components, prior_mean=prior_mean, prior_std=prior_std, posterior_mean_init=posterior_mean_init, posterior_std_init=posterior_std_init)
-        self.bn3 = norm_layer(planes * self.expansion, n_components)
+        self.bn3 = norm_layer(planes * self.expansion) #, n_components)
         self.relu = nn.ReLU(inplace=True)
         self.downsample = downsample
         self.stride = stride
@@ -157,7 +157,7 @@ class StoResNet(nn.Module):
     ) -> None:
         super(StoResNet, self).__init__()
         if norm_layer is None:
-            norm_layer = EnsembleBatchNorm2d
+            norm_layer = nn.BatchNorm2d
         self._norm_layer = norm_layer
         self.n_components = n_components
 
@@ -174,7 +174,7 @@ class StoResNet(nn.Module):
         self.base_width = width_per_group
         self.conv1 = StoConv2d(3, self.inplanes, kernel_size=7, stride=2, padding=3,
                                bias=False, n_components=n_components, prior_mean=prior_mean, prior_std=prior_std, posterior_mean_init=posterior_mean_init, posterior_std_init=posterior_std_init)
-        self.bn1 = norm_layer(self.inplanes, n_components)
+        self.bn1 = norm_layer(self.inplanes) #, n_components)
         self.relu = nn.ReLU(inplace=True)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
         self.layer1 = self._make_layer(block, 64, layers[0], n_components=n_components, prior_mean=prior_mean, prior_std=prior_std, posterior_mean_init=posterior_mean_init, posterior_std_init=posterior_std_init)
@@ -232,7 +232,7 @@ class StoResNet(nn.Module):
         if stride != 1 or self.inplanes != planes * block.expansion:
             downsample = nn.Sequential(
                 conv1x1(self.inplanes, planes * block.expansion, stride, n_components=n_components, prior_mean=prior_mean, prior_std=prior_std, posterior_mean_init=posterior_mean_init, posterior_std_init=posterior_std_init),
-                norm_layer(planes * block.expansion, n_components),
+                norm_layer(planes * block.expansion) #, n_components),
             )
 
         layers = []

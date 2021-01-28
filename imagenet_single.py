@@ -72,7 +72,7 @@ def main():
     parser.add_argument('--warmup', help='warm up epochs', type=int, default=5)
     parser.add_argument('--posterior', help="posterior",
                         action=StoreDictKeyPair, keys=('mean_init', 'std_init'))
-    parser.add_argument('--use_pretrained', action='store_true')
+    parser.add_argument('--pretrained', type=str, default='')
     parser.add_argument('--workers', default=4, type=int, help='number of data loading workers (default: 4)')
     parser.add_argument('--traindir', default='data/imagenet/train.lmdb', type=str)
     parser.add_argument('--valdir', default='data/imagenet/val.lmdb', type=str)
@@ -134,8 +134,10 @@ def parallel_nll(model, x, y, n_sample):
 
 def get_model(args, dataloader):
     args.step_per_epoch = step_per_epoch = 1281167 // args.total_batch_size
-    model = resnet50(deterministic_pretrained=args.use_pretrained, n_components=args.n_components,
+    model = resnet50(deterministic_pretrained=False, n_components=args.n_components,
                      prior_mean=args.prior['mean'], prior_std=args.prior['std'], posterior_mean_init=args.posterior['mean_init'], posterior_std_init=args.posterior['std_init'])
+    if args.pretrained != "":
+        model.load_state_dict(torch.load(args.pretrained, 'cpu'), strict=False)
     model.cuda()
     model = nn.SyncBatchNorm.convert_sync_batchnorm(model)
     detp = []
@@ -253,7 +255,7 @@ def train(args):
                 loss = loglike + float(args.rank==0)*klw*kl/(n_batch*args.batch_size['train'])
             scaler.scale(loss).backward()
             scaler.step(optimizer)
-            scaler.update(128.0)
+            scaler.update(4096.0)
             scheduler.step()
             print("VB Epoch %d: loglike: %.4f, kl: %.4f, kl weight: %.4f, lr1: %.4f, lr2: %.4f, scale: %.1f, time: %.2f" % (i, loglike.item(), kl.item(), klw, optimizer.param_groups[0]['lr'], optimizer.param_groups[1]['lr'], scaler.get_scale(), time.time()-t0))
             lls.append(loglike.item())

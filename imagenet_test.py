@@ -10,7 +10,7 @@ import torch.nn as nn
 import torchvision
 import json
 import random
-
+from tqdm import tqdm
 from imagenet_loader import get_dali_val_loader
 from models import count_parameters, ECELoss
 from models.resnet50 import resnet50
@@ -30,6 +30,7 @@ def main():
     parser.add_argument('--out_dir', type=str)
     parser.add_argument('--workers', default=4, type=int, help='number of data loading workers (default: 4)')
     parser.add_argument('--valdir', default='data/imagenet/val.lmdb', type=str)
+    parser.add_argument('--not_normalize', action='store_true')
     args = parser.parse_args()
 
     torch.manual_seed(args.seed)
@@ -47,7 +48,7 @@ def parallel_nll(model, x, y, n_sample):
 
 
 def get_model(args):
-    model = resnet50(deterministic_pretrained=args.use_pretrained, n_components=args.n_components,
+    model = resnet50(deterministic_pretrained=False, n_components=args.n_components,
                      prior_mean=1.0, prior_std=0.1, posterior_mean_init=(1.0, 0.75), posterior_std_init=(0.05, 0.02))
     model.cuda()
     return model
@@ -58,7 +59,7 @@ def get_dataloader(args):
     val_loader, val_loader_len = get_val_loader(
         path=[f"data/imagenet/tf_records/validation/validation-{i:05d}-of-00128" for i in range(128)],
         index_path=[f"data/imagenet/tf_records/validation/validation-{i:05d}-of-00128.txt" for i in range(128)],
-        batch_size=args.batch_size["test"],
+        batch_size=args.batch_size,
         num_classes=1000,
         one_hot=False,
         workers=args.workers,
@@ -87,7 +88,7 @@ def train(args):
     test_loader, test_loader_len = get_dataloader(args)
     model = get_model(args)
     model.eval()
-    amp_cp = torch.load(args.checkpoint)
+    amp_cp = torch.load(args.checkpoint, 'cpu')
     model.load_state_dict(amp_cp['model'])
     del amp_cp
     tnll = 0
@@ -98,10 +99,10 @@ def train(args):
     y_prob_all = []
     model.eval()
     with torch.no_grad():
-        for bx, by in test_loader:
+        for bx, by in tqdm(test_loader):
             bx = bx.cuda(non_blocking=True)
             by = by.cuda(non_blocking=True)
-            prob = model(bx, args.num_sample)
+            prob = model(bx, args.num_sample*model.n_components)
             y_target = by.unsqueeze(1).expand(-1, args.num_sample*model.n_components)
             bnll = D.Categorical(logits=prob).log_prob(y_target)
             bnll = torch.logsumexp(bnll, dim=1) - torch.log(torch.tensor(args.num_sample*model.n_components, dtype=torch.float32, device=bnll.device))

@@ -58,7 +58,7 @@ class StoBasicBlock(nn.Module):
                 "Dilation > 1 not supported in BasicBlock")
         # Both self.conv1 and self.downsample layers downsample the input when stride != 1
         self.conv1 = conv3x3(inplanes, planes, stride, n_components=n_components, prior_mean=prior_mean, prior_std=prior_std, posterior_mean_init=posterior_mean_init, posterior_std_init=posterior_std_init)
-        self.bn1 = norm_layer(planes) #, n_components)
+        self.bn1 = norm_layer(inplanes) #, n_components)
         self.relu = nn.ReLU(inplace=True)
         self.conv2 = conv3x3(planes, planes, n_components=n_components, prior_mean=prior_mean, prior_std=prior_std, posterior_mean_init=posterior_mean_init, posterior_std_init=posterior_std_init)
         self.bn2 = norm_layer(planes) #, n_components)
@@ -68,18 +68,19 @@ class StoBasicBlock(nn.Module):
     def forward(self, x: Tensor) -> Tensor:
         identity = x
 
-        out = self.conv1(x)
-        out = self.bn1(out)
+        out = self.bn1(x)
         out = self.relu(out)
-
-        out = self.conv2(out)
-        out = self.bn2(out)
 
         if self.downsample is not None:
-            identity = self.downsample(x)
+            identity = self.downsample(out)
+
+        out = self.conv1(out)
+
+        out = self.bn2(out)
+        out = self.relu(out)
+        out = self.conv2(out)
 
         out += identity
-        out = self.relu(out)
 
         return out
 
@@ -110,11 +111,11 @@ class StoBottleneck(nn.Module):
         width = int(planes * (base_width / 64.)) * groups
         # Both self.conv2 and self.downsample layers downsample the input when stride != 1
         self.conv1 = conv1x1(inplanes, width, n_components=n_components, prior_mean=prior_mean, prior_std=prior_std, posterior_mean_init=posterior_mean_init, posterior_std_init=posterior_std_init)
-        self.bn1 = norm_layer(width) #, n_components)
+        self.bn1 = norm_layer(inplanes) #, n_components)
         self.conv2 = conv3x3(width, width, stride, groups, dilation, n_components=n_components, prior_mean=prior_mean, prior_std=prior_std, posterior_mean_init=posterior_mean_init, posterior_std_init=posterior_std_init)
         self.bn2 = norm_layer(width) #, n_components)
         self.conv3 = conv1x1(width, planes * self.expansion, n_components=n_components, prior_mean=prior_mean, prior_std=prior_std, posterior_mean_init=posterior_mean_init, posterior_std_init=posterior_std_init)
-        self.bn3 = norm_layer(planes * self.expansion) #, n_components)
+        self.bn3 = norm_layer(width) #, n_components)
         self.relu = nn.ReLU(inplace=True)
         self.downsample = downsample
         self.stride = stride
@@ -122,22 +123,24 @@ class StoBottleneck(nn.Module):
     def forward(self, x: Tensor) -> Tensor:
         identity = x
 
-        out = self.conv1(x)
-        out = self.bn1(out)
+        out = self.bn1(x)
         out = self.relu(out)
-
-        out = self.conv2(out)
-        out = self.bn2(out)
-        out = self.relu(out)
-
-        out = self.conv3(out)
-        out = self.bn3(out)
 
         if self.downsample is not None:
-            identity = self.downsample(x)
+            identity = self.downsample(out)
+
+        out = self.conv1(out)
+
+        out = self.bn2(out)
+        out = self.relu(out)
+        out = self.conv2(out)
+
+        out = self.bn3(out)
+        out = self.relu(out)
+        out = self.conv3(out)
+
 
         out += identity
-        out = self.relu(out)
 
         return out
 
@@ -174,8 +177,6 @@ class StoResNet(nn.Module):
         self.base_width = width_per_group
         self.conv1 = StoConv2d(3, self.inplanes, kernel_size=7, stride=2, padding=3,
                                bias=False, n_components=n_components, prior_mean=prior_mean, prior_std=prior_std, posterior_mean_init=posterior_mean_init, posterior_std_init=posterior_std_init)
-        self.bn1 = norm_layer(self.inplanes) #, n_components)
-        self.relu = nn.ReLU(inplace=True)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
         self.layer1 = self._make_layer(block, 64, layers[0], n_components=n_components, prior_mean=prior_mean, prior_std=prior_std, posterior_mean_init=posterior_mean_init, posterior_std_init=posterior_std_init)
         self.layer2 = self._make_layer(block, 128, layers[1], stride=2,
@@ -184,6 +185,8 @@ class StoResNet(nn.Module):
                                        dilate=replace_stride_with_dilation[1], n_components=n_components, prior_mean=prior_mean, prior_std=prior_std, posterior_mean_init=posterior_mean_init, posterior_std_init=posterior_std_init)
         self.layer4 = self._make_layer(block, 512, layers[3], stride=2,
                                        dilate=replace_stride_with_dilation[2], n_components=n_components, prior_mean=prior_mean, prior_std=prior_std, posterior_mean_init=posterior_mean_init, posterior_std_init=posterior_std_init)
+        self.bn1 = norm_layer(512 * block.expansion)
+        self.relu = nn.ReLU(True)
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
         self.fc = StoLinear(512 * block.expansion, num_classes, n_components=n_components, prior_mean=prior_mean, prior_std=prior_std, posterior_mean_init=posterior_mean_init, posterior_std_init=posterior_std_init)
 
@@ -197,12 +200,12 @@ class StoResNet(nn.Module):
         # Zero-initialize the last BN in each residual branch,
         # so that the residual branch starts with zeros, and each residual block behaves like an identity.
         # This improves the model by 0.2~0.3% according to https://arxiv.org/abs/1706.02677
-        if zero_init_residual:
-            for m in self.modules():
-                if isinstance(m, StoBottleneck):
-                    nn.init.constant_(m.bn3.weight, 0)  # type: ignore[arg-type]
-                elif isinstance(m, StoBasicBlock):
-                    nn.init.constant_(m.bn2.weight, 0)  # type: ignore[arg-type]
+        # if zero_init_residual:
+        #     for m in self.modules():
+        #         if isinstance(m, StoBottleneck):
+        #             nn.init.constant_(m.bn3.weight, 0)  # type: ignore[arg-type]
+        #         elif isinstance(m, StoBasicBlock):
+        #             nn.init.constant_(m.bn2.weight, 0)  # type: ignore[arg-type]
         self.sto_modules = set(
             m for m in self.modules() if isinstance(m, StoLayer)
         )
@@ -230,10 +233,7 @@ class StoResNet(nn.Module):
             self.dilation *= stride
             stride = 1
         if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(
-                conv1x1(self.inplanes, planes * block.expansion, stride, n_components=n_components, prior_mean=prior_mean, prior_std=prior_std, posterior_mean_init=posterior_mean_init, posterior_std_init=posterior_std_init),
-                norm_layer(planes * block.expansion) #, n_components),
-            )
+            downsample = conv1x1(self.inplanes, planes * block.expansion, stride, n_components=n_components, prior_mean=prior_mean, prior_std=prior_std, posterior_mean_init=posterior_mean_init, posterior_std_init=posterior_std_init)
 
         layers = []
         layers.append(block(self.inplanes, planes, stride, downsample, self.groups,
@@ -251,8 +251,6 @@ class StoResNet(nn.Module):
         if L > 1:
             x = torch.repeat_interleave(x, L, dim=0)
         x = self.conv1(x)
-        x = self.bn1(x)
-        x = self.relu(x)
         x = self.maxpool(x)
 
         x = self.layer1(x)
@@ -260,6 +258,8 @@ class StoResNet(nn.Module):
         x = self.layer3(x)
         x = self.layer4(x)
 
+        x = self.bn1(x)
+        x = self.relu(x)
         x = self.avgpool(x)
         x = torch.flatten(x, 1)
         x = F.log_softmax(self.fc(x), dim=-1)

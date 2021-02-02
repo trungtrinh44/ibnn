@@ -34,12 +34,35 @@ class StoVGG(nn.Module):
         )
         if init_weights:
             self._initialize_weights()
+        self.sto_modules = set(
+            m for m in self.modules() if isinstance(m, StoLayer)
+        )
+    
+    def kl(self):
+        return sum(m.kl() for m in self.sto_modules)
 
-    def forward(self, x):
+    def vb_loss(self, x, y, n_sample):
+        y = y.unsqueeze(1).expand(-1, n_sample)
+        logp = D.Categorical(logits=self.forward(x, n_sample)).log_prob(y).mean()
+        return -logp, self.kl()
+    
+    def nll(self, x, y, n_sample):
+        log_prob = self.forward(x, n_sample*self.n_components, False)
+        logp = D.Categorical(logits=log_prob).log_prob(y.unsqueeze(1).expand(-1, self.n_components*n_sample))
+        logp = torch.logsumexp(logp, 1) - torch.log(torch.tensor(self.n_components*n_sample, dtype=torch.float32, device=x.device))
+        return -logp.mean(), log_prob
+
+    def forward(self, x, L=1, return_kl=False):
+        if L > 1:
+            x = torch.repeat_interleave(x, L, dim=0)
         x = self.features(x)
         x = self.avgpool(x)
         x = torch.flatten(x, 1)
         x = self.classifier(x)
+        x = nn.functional.log_softmax(x, dim=1)
+        x = x.view(-1, L, x.size(1))
+        if return_kl:
+            return x, self.kl()
         return x
 
     def _initialize_weights(self):

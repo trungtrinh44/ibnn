@@ -84,7 +84,7 @@ class HybridTrainPipe(Pipeline):
             random_shuffle = True,
             num_shards = world_size,
             read_ahead = True,
-            pad_last_batch = True
+            pad_last_batch = False
         )
 
         if dali_cpu:
@@ -243,7 +243,7 @@ def get_dali_train_loader(dali_cpu=False):
 
         pipe.build()
         train_loader = DALIClassificationIterator(
-            pipe, reader_name='Train_reader', last_batch_policy=LastBatchPolicy.PARTIAL
+            pipe, reader_name='Train_reader', last_batch_policy=LastBatchPolicy.FILL
         )
 
         return (

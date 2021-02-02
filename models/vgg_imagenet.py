@@ -57,7 +57,7 @@ class StoVGG(nn.Module):
                 nn.init.constant_(m.bias, 0)
 
 def make_layers(cfg, batch_norm=False, n_components=2, prior_mean=1.0, prior_std=1.0, posterior_mean_init=(1.0, 0.75), posterior_std_init=(0.05, 0.02)):
-    layers = []``
+    layers = []
     in_channels = 3
     for v in cfg:
         if v == "M":

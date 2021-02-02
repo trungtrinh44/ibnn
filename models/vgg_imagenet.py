@@ -84,7 +84,7 @@ def _vgg(arch, cfg, batch_norm, pretrained, progress, **kwargs):
     if pretrained:
         kwargs['init_weights'] = False
     n_components, prior_mean, prior_std, posterior_mean_init, posterior_std_init = kwargs['n_components'], kwargs['prior_mean'], kwargs['prior_std'], kwargs['posterior_mean_init'], kwargs['posterior_std_init']
-    model = VGG(make_layers(cfgs[cfg], batch_norm, n_components, prior_mean, prior_std, posterior_mean_init, posterior_std_init), **kwargs)
+    model = StoVGG(make_layers(cfgs[cfg], batch_norm, n_components, prior_mean, prior_std, posterior_mean_init, posterior_std_init), **kwargs)
     if pretrained:
         state_dict = load_state_dict_from_url(model_urls[arch],
                                               progress=progress)

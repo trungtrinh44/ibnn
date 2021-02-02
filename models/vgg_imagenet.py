@@ -26,9 +26,11 @@ class StoVGG(nn.Module):
             StoLinear(512 * 7 * 7, 4096, n_components=n_components, prior_mean=prior_mean, prior_std=prior_std,
                       posterior_mean_init=posterior_mean_init, posterior_std_init=posterior_std_init),
             nn.ReLU(True),
+            nn.Identity(),
             StoLinear(4096, 4096, n_components=n_components, prior_mean=prior_mean, prior_std=prior_std,
                       posterior_mean_init=posterior_mean_init, posterior_std_init=posterior_std_init),
             nn.ReLU(True),
+            nn.Identity(),
             StoLinear(4096, num_classes, n_components=n_components, prior_mean=prior_mean, prior_std=prior_std,
                       posterior_mean_init=posterior_mean_init, posterior_std_init=posterior_std_init),
         )

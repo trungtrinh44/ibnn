@@ -1,6 +1,7 @@
 import argparse
 import ast
 import os
+import math
 from time import sleep
 import numpy as np
 import torch
@@ -17,7 +18,7 @@ import random
 from imagenet_loader import get_dali_train_loader, get_dali_val_loader
 from models import count_parameters
 from models.resnet50 import resnet50
-
+from models.vgg_imagenet import vgg16
 torch.backends.cudnn.benchmark = True
 torch.backends.cudnn.deterministic = False
 END_MSG = "PROCESS_END"
@@ -77,6 +78,7 @@ def main():
     parser.add_argument('--traindir', default='data/imagenet/train.lmdb', type=str)
     parser.add_argument('--valdir', default='data/imagenet/val.lmdb', type=str)
     parser.add_argument('--not_normalize', action='store_true')
+    parser.add_argument('--model', default='resnet50', type=str)
     args = parser.parse_args()
     args.local_rank = int(os.environ["LOCAL_RANK"])
     args.rank = int(os.environ["RANK"])
@@ -100,7 +102,7 @@ def main():
 def get_kl_weight(epoch, args):
     kl_max = args.kl_weight['kl_max']
     kl_min = args.kl_weight['kl_min']
-    last_iter = args.kl_weight['last_iter']
+    last_iter = args.kl_weight['last_iter']*args.step_per_epoch
     value = (kl_max-kl_min)/last_iter
     return min(kl_max, kl_min + epoch*value)
 
@@ -118,10 +120,10 @@ def schedule(step, steps_per_epoch, warm_up, multipliers):
 
 
 def vb_loss(model, x, y, n_sample):
-    y = y.unsqueeze(1).expand(-1, n_sample)
+    y = torch.repeat_interleave(y, n_sample, 0)
     logits, kl = model(x, n_sample, return_kl=True)
-    logp = D.Categorical(logits=logits).log_prob(y).mean()
-    return -logp, kl
+    logp = torch.nn.functional.nll_loss(logits.view(-1, logits.size(2)), y)
+    return logp, kl
 
 
 def parallel_nll(model, x, y, n_sample):
@@ -132,10 +134,13 @@ def parallel_nll(model, x, y, n_sample):
     return -logp.mean(), prob
 
 
-def get_model(args, dataloader):
-    args.step_per_epoch = step_per_epoch = 1281167 // args.total_batch_size
-    model = resnet50(deterministic_pretrained=False, n_components=args.n_components,
-                     prior_mean=args.prior['mean'], prior_std=args.prior['std'], posterior_mean_init=args.posterior['mean_init'], posterior_std_init=args.posterior['std_init'])
+def get_model(args):
+    if args.model == 'resnet50':
+        model = resnet50(deterministic_pretrained=False, n_components=args.n_components,
+                         prior_mean=args.prior['mean'], prior_std=args.prior['std'], posterior_mean_init=args.posterior['mean_init'], posterior_std_init=args.posterior['std_init'])
+    elif args.model == 'vgg16':
+        model = vgg16(pretrained=False, n_components=args.n_components,
+                      prior_mean=args.prior['mean'], prior_std=args.prior['std'], posterior_mean_init=args.posterior['mean_init'], posterior_std_init=args.posterior['std_init'])
     if args.pretrained != "":
         model.load_state_dict(torch.load(args.pretrained, 'cpu'), strict=False)
     model.cuda()
@@ -164,10 +169,9 @@ def get_model(args, dataloader):
 #                                      warmup_length=args.warmup*step_per_epoch)
 #    ])
     scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, [
-        lambda step: schedule(step, step_per_epoch, args.warmup, args.schedule['det']),
-        lambda step: schedule(step, step_per_epoch, args.warmup, args.schedule['sto'])
+        lambda step: schedule(step, args.step_per_epoch, args.warmup, args.schedule['det']),
+        lambda step: schedule(step, args.step_per_epoch, args.warmup, args.schedule['sto'])
     ])
-    args.step_per_epoch = step_per_epoch
     model = DDP(model, device_ids=[args.gpu])
     return model, optimizer, scheduler
 
@@ -228,15 +232,16 @@ def test_nll(model, loader, num_sample):
 def train(args):
     print('Get data loader')
     train_loader, test_loader, train_loader_len, test_loader_len = get_dataloader(args)
-    n_batch = train_loader_len
-    print(f"Train size: {train_loader_len}, test size: {test_loader_len}")
-    model, optimizer, scheduler = get_model(args, train_loader)
+    args.step_per_epoch = n_batch = math.ceil(1281167/args.total_batch_size)
+    print(f"Train size: {n_batch}, test size: {test_loader_len}")
+    model, optimizer, scheduler = get_model(args)
     if args.rank == 0:
         count_parameters(model)
         print(str(model))
     checkpoint_dir = os.path.join(args.root, 'checkpoint_{}.pt')
     model.train()
-    scaler = torch.cuda.amp.GradScaler(init_scale=4096.0, growth_factor=2.0, backoff_factor=0.5, growth_interval=2000)
+    scaler = torch.cuda.amp.GradScaler()
+    old_scale = scaler.get_scale()
     iteration = args.start_epoch
     if args.start_checkpoint != "":
         amp_cp = torch.load(args.start_checkpoint)
@@ -248,15 +253,23 @@ def train(args):
         t0 = time.time()
         lls = []
         for bx, by in train_loader:
-            optimizer.zero_grad()
-            klw = get_kl_weight(i, args)
-            with torch.cuda.amp.autocast():
-                loglike, kl = vb_loss(model, bx, by, args.num_sample['train'])
-                loss = loglike + float(args.rank==0)*klw*kl/(n_batch*args.batch_size['train'])
-            scaler.scale(loss).backward()
-            scaler.step(optimizer)
-            scaler.update(4096.0)
-            scheduler.step()
+            while True:
+                optimizer.zero_grad()
+                klw = get_kl_weight(iteration, args)
+                with torch.cuda.amp.autocast():
+                    loglike, kl = vb_loss(model, bx, by, args.num_sample['train'])
+                    loss = loglike + klw*kl/1281167
+                scaler.scale(loss).backward()
+                scaler.step(optimizer)
+                scaler.update()
+                new_scale = scaler.get_scale()
+                scheduler.step()
+                if new_scale >= old_scale:
+                    old_scale = new_scale
+                    break
+                else:
+                    old_scale = new_scale
+            iteration += 1
             print("VB Epoch %d: loglike: %.4f, kl: %.4f, kl weight: %.4f, lr1: %.4f, lr2: %.4f, scale: %.1f, time: %.2f" % (i, loglike.item(), kl.item(), klw, optimizer.param_groups[0]['lr'], optimizer.param_groups[1]['lr'], scaler.get_scale(), time.time()-t0))
             lls.append(loglike.item())
             torch.cuda.synchronize()

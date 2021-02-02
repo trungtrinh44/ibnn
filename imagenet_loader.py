@@ -121,13 +121,13 @@ class HybridTrainPipe(Pipeline):
 
     def define_graph(self):
         rng = self.coin()
-        output = self.input(name="Reader")
+        output = self.input(name="Train_reader")
         self.jpegs = output["image/encoded"]
         self.labels = output["image/class/label"]
         images = self.decode(self.jpegs)
         images = self.res(images)
         output = self.cmnp(images.gpu(), mirror=rng)
-        return [output, self.labels]
+        return output, self.labels
 
 
 class HybridValPipe(Pipeline):
@@ -135,7 +135,7 @@ class HybridValPipe(Pipeline):
         super(HybridValPipe, self).__init__(
             batch_size, num_threads, device_id, seed=12 + device_id
         )
-    
+
         if torch.distributed.is_initialized():
             rank = torch.distributed.get_rank()
             world_size = torch.distributed.get_world_size()
@@ -175,13 +175,13 @@ class HybridValPipe(Pipeline):
         )
 
     def define_graph(self):
-        output = self.input(name="Reader")
+        output = self.input(name="Val_reader")
         self.jpegs = output["image/encoded"]
         self.labels = output["image/class/label"]
         images = self.decode(self.jpegs)
         images = self.res(images)
         output = self.cmnp(images)
-        return [output, self.labels]
+        return output, self.labels
 
 
 class DALIWrapper(object):
@@ -241,12 +241,12 @@ def get_dali_train_loader(dali_cpu=False):
 
         pipe.build()
         train_loader = DALIClassificationIterator(
-            pipe, size=int(pipe.epoch_size("Reader") / world_size)
+            pipe, reader_name='Train_reader'
         )
 
         return (
             DALIWrapper(train_loader, num_classes, one_hot, memory_format),
-            int(pipe.epoch_size("Reader") / (world_size * batch_size)),
+            int(pipe.epoch_size("Train_reader") / (world_size * batch_size)),
         )
 
     return gdtl
@@ -285,12 +285,12 @@ def get_dali_val_loader():
 
         pipe.build()
         val_loader = DALIClassificationIterator(
-            pipe, size=int(pipe.epoch_size("Reader") / world_size)
+            pipe, reader_name='Val_reader'
         )
 
         return (
             DALIWrapper(val_loader, num_classes, one_hot, memory_format),
-            int(pipe.epoch_size("Reader") / (world_size * batch_size)),
+            int(pipe.epoch_size("Val_reader") / (world_size * batch_size)),
         )
 
     return gdvl

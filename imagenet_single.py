@@ -18,7 +18,7 @@ import random
 from imagenet_loader import get_dali_train_loader, get_dali_val_loader
 from models import count_parameters
 from models.resnet50 import resnet50
-
+from models.vgg_imagenet import vgg16
 torch.backends.cudnn.benchmark = True
 torch.backends.cudnn.deterministic = False
 END_MSG = "PROCESS_END"
@@ -78,6 +78,7 @@ def main():
     parser.add_argument('--traindir', default='data/imagenet/train.lmdb', type=str)
     parser.add_argument('--valdir', default='data/imagenet/val.lmdb', type=str)
     parser.add_argument('--not_normalize', action='store_true')
+    parser.add_argument('--model', default='resnet50', type=str)
     args = parser.parse_args()
     args.local_rank = int(os.environ["LOCAL_RANK"])
     args.rank = int(os.environ["RANK"])
@@ -119,10 +120,10 @@ def schedule(step, steps_per_epoch, warm_up, multipliers):
 
 
 def vb_loss(model, x, y, n_sample):
-    y = y.unsqueeze(1).expand(-1, n_sample)
+    y = torch.repeat_interleave(y, n_sample, 0)
     logits, kl = model(x, n_sample, return_kl=True)
-    logp = D.Categorical(logits=logits).log_prob(y).mean()
-    return -logp, kl
+    logp = torch.nn.functional.nll_loss(logits, y)
+    return logp, kl
 
 
 def parallel_nll(model, x, y, n_sample):
@@ -133,10 +134,13 @@ def parallel_nll(model, x, y, n_sample):
     return -logp.mean(), prob
 
 
-def get_model(args, step_per_epoch):
-    args.step_per_epoch = step_per_epoch = 1281167 // args.total_batch_size
-    model = resnet50(deterministic_pretrained=False, n_components=args.n_components,
-                     prior_mean=args.prior['mean'], prior_std=args.prior['std'], posterior_mean_init=args.posterior['mean_init'], posterior_std_init=args.posterior['std_init'])
+def get_model(args):
+    if args.model == 'resnet50':
+        model = resnet50(deterministic_pretrained=False, n_components=args.n_components,
+                         prior_mean=args.prior['mean'], prior_std=args.prior['std'], posterior_mean_init=args.posterior['mean_init'], posterior_std_init=args.posterior['std_init'])
+    elif args.model == 'vgg16':
+        model = vgg16(pretrained=False, n_components=args.n_components,
+                      prior_mean=args.prior['mean'], prior_std=args.prior['std'], posterior_mean_init=args.posterior['mean_init'], posterior_std_init=args.posterior['std_init'])
     if args.pretrained != "":
         model.load_state_dict(torch.load(args.pretrained, 'cpu'), strict=False)
     model.cuda()
@@ -165,10 +169,9 @@ def get_model(args, step_per_epoch):
 #                                      warmup_length=args.warmup*step_per_epoch)
 #    ])
     scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, [
-        lambda step: schedule(step, step_per_epoch, args.warmup, args.schedule['det']),
-        lambda step: schedule(step, step_per_epoch, args.warmup, args.schedule['sto'])
+        lambda step: schedule(step, args.step_per_epoch, args.warmup, args.schedule['det']),
+        lambda step: schedule(step, args.step_per_epoch, args.warmup, args.schedule['sto'])
     ])
-    args.step_per_epoch = step_per_epoch
     model = DDP(model, device_ids=[args.gpu])
     return model, optimizer, scheduler
 
@@ -229,9 +232,9 @@ def test_nll(model, loader, num_sample):
 def train(args):
     print('Get data loader')
     train_loader, test_loader, train_loader_len, test_loader_len = get_dataloader(args)
-    n_batch = math.ceil(1281167/args.total_batch_size)
+    args.step_per_epoch = n_batch = math.ceil(1281167/args.total_batch_size)
     print(f"Train size: {n_batch}, test size: {test_loader_len}")
-    model, optimizer, scheduler = get_model(args, n_batch)
+    model, optimizer, scheduler = get_model(args)
     if args.rank == 0:
         count_parameters(model)
         print(str(model))
@@ -278,9 +281,9 @@ def train(args):
                 amp_cp = { 'model': model.module.state_dict(), 'scaler': scaler.state_dict(), 'optimizer': optimizer.state_dict(), 'scheduler': scheduler.state_dict() }
                 torch.save(amp_cp, checkpoint_dir.format(str(i)))
                 print('Save checkpoint')
-#            nll, acc = test_nll(model, test_loader,
-#                                args.num_sample['test'])
-#            print("VB Epoch %d: test NLL %.4f, acc %.4f" % (i, nll, acc))
+            nll, acc = test_nll(model, test_loader,
+                                args.num_sample['test'])
+            print("VB Epoch %d: test NLL %.4f, acc %.4f" % (i, nll, acc))
             model.train()
     if args.rank == 0:
         torch.save(model.module.state_dict(), checkpoint_dir.format('final'))

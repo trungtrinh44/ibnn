@@ -1,6 +1,7 @@
 import argparse
 import ast
 import os
+import math
 from time import sleep
 import numpy as np
 import torch
@@ -100,7 +101,7 @@ def main():
 def get_kl_weight(epoch, args):
     kl_max = args.kl_weight['kl_max']
     kl_min = args.kl_weight['kl_min']
-    last_iter = args.kl_weight['last_iter']
+    last_iter = args.kl_weight['last_iter']*args.step_per_epoch
     value = (kl_max-kl_min)/last_iter
     return min(kl_max, kl_min + epoch*value)
 
@@ -132,7 +133,7 @@ def parallel_nll(model, x, y, n_sample):
     return -logp.mean(), prob
 
 
-def get_model(args, dataloader):
+def get_model(args, step_per_epoch):
     args.step_per_epoch = step_per_epoch = 1281167 // args.total_batch_size
     model = resnet50(deterministic_pretrained=False, n_components=args.n_components,
                      prior_mean=args.prior['mean'], prior_std=args.prior['std'], posterior_mean_init=args.posterior['mean_init'], posterior_std_init=args.posterior['std_init'])
@@ -228,15 +229,16 @@ def test_nll(model, loader, num_sample):
 def train(args):
     print('Get data loader')
     train_loader, test_loader, train_loader_len, test_loader_len = get_dataloader(args)
-    n_batch = train_loader_len
-    print(f"Train size: {train_loader_len}, test size: {test_loader_len}")
-    model, optimizer, scheduler = get_model(args, train_loader)
+    n_batch = math.ceil(1281167/args.total_batch_size)
+    print(f"Train size: {n_batch}, test size: {test_loader_len}")
+    model, optimizer, scheduler = get_model(args, n_batch)
     if args.rank == 0:
         count_parameters(model)
         print(str(model))
     checkpoint_dir = os.path.join(args.root, 'checkpoint_{}.pt')
     model.train()
-    scaler = torch.cuda.amp.GradScaler(init_scale=4096.0, growth_factor=2.0, backoff_factor=0.5, growth_interval=2000)
+    scaler = torch.cuda.amp.GradScaler()
+    old_scale = scaler.get_scale()
     iteration = args.start_epoch
     if args.start_checkpoint != "":
         amp_cp = torch.load(args.start_checkpoint)
@@ -248,15 +250,23 @@ def train(args):
         t0 = time.time()
         lls = []
         for bx, by in train_loader:
-            optimizer.zero_grad()
-            klw = get_kl_weight(i, args)
-            with torch.cuda.amp.autocast():
-                loglike, kl = vb_loss(model, bx, by, args.num_sample['train'])
-                loss = loglike + float(args.rank==0)*klw*kl/(n_batch*args.batch_size['train'])
-            scaler.scale(loss).backward()
-            scaler.step(optimizer)
-            scaler.update(4096.0)
-            scheduler.step()
+            while True:
+                optimizer.zero_grad()
+                klw = get_kl_weight(iteration, args)
+                with torch.cuda.amp.autocast():
+                    loglike, kl = vb_loss(model, bx, by, args.num_sample['train'])
+                    loss = loglike + klw*kl/1281167
+                scaler.scale(loss).backward()
+                scaler.step(optimizer)
+                scaler.update()
+                new_scale = scaler.get_scale()
+                scheduler.step()
+                if new_scale >= old_scale:
+                    old_scale = new_scale
+                    break
+                else:
+                    old_scale = new_scale
+            iteration += 1
             print("VB Epoch %d: loglike: %.4f, kl: %.4f, kl weight: %.4f, lr1: %.4f, lr2: %.4f, scale: %.1f, time: %.2f" % (i, loglike.item(), kl.item(), klw, optimizer.param_groups[0]['lr'], optimizer.param_groups[1]['lr'], scaler.get_scale(), time.time()-t0))
             lls.append(loglike.item())
             torch.cuda.synchronize()
@@ -268,9 +278,9 @@ def train(args):
                 amp_cp = { 'model': model.module.state_dict(), 'scaler': scaler.state_dict(), 'optimizer': optimizer.state_dict(), 'scheduler': scheduler.state_dict() }
                 torch.save(amp_cp, checkpoint_dir.format(str(i)))
                 print('Save checkpoint')
-            nll, acc = test_nll(model, test_loader,
-                                args.num_sample['test'])
-            print("VB Epoch %d: test NLL %.4f, acc %.4f" % (i, nll, acc))
+#            nll, acc = test_nll(model, test_loader,
+#                                args.num_sample['test'])
+#            print("VB Epoch %d: test NLL %.4f, acc %.4f" % (i, nll, acc))
             model.train()
     if args.rank == 0:
         torch.save(model.module.state_dict(), checkpoint_dir.format('final'))

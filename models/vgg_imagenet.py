@@ -18,7 +18,7 @@ model_urls = {
 
 class StoVGG(nn.Module):
 
-    def __init__(self, features, num_classes=1000, init_weights=True):
+    def __init__(self, features, num_classes=1000, init_weights=True, n_components=2, prior_mean=1.0, prior_std=1.0, posterior_mean_init=(1.0, 0.75), posterior_std_init=(0.05, 0.02)):
         super(StoVGG, self).__init__()
         self.features = features
         self.avgpool = nn.AdaptiveAvgPool2d((7, 7))

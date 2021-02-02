@@ -122,7 +122,7 @@ def schedule(step, steps_per_epoch, warm_up, multipliers):
 def vb_loss(model, x, y, n_sample):
     y = torch.repeat_interleave(y, n_sample, 0)
     logits, kl = model(x, n_sample, return_kl=True)
-    logp = torch.nn.functional.nll_loss(logits, y)
+    logp = torch.nn.functional.nll_loss(logits.view(-1, logits.size(2)), y)
     return logp, kl
 
 

@@ -8,7 +8,7 @@ from functools import partial
 
 DATA_BACKEND_CHOICES = ["pytorch", "syntetic"]
 try:
-    from nvidia.dali.plugin.pytorch import DALIClassificationIterator
+    from nvidia.dali.plugin.pytorch import DALIClassificationIterator, LastBatchPolicy
     from nvidia.dali.pipeline import Pipeline
     import nvidia.dali.tfrecord as tfrec
     import nvidia.dali.ops as ops
@@ -160,7 +160,8 @@ class HybridValPipe(Pipeline):
             shard_id = rank,
             random_shuffle = False,
             num_shards = world_size,
-            read_ahead = False
+            read_ahead = False,
+            pad_last_batch = True
         )
 
         self.decode = ops.ImageDecoder(device="mixed", output_type=types.RGB)
@@ -285,7 +286,7 @@ def get_dali_val_loader():
 
         pipe.build()
         val_loader = DALIClassificationIterator(
-            pipe, reader_name='Val_reader'
+            pipe, reader_name='Val_reader', last_batch_policy=LastBatchPolicy.PARTIAL
         )
 
         return (

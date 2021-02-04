@@ -20,6 +20,7 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 from imagenet_loader import ImageFolderLMDB
 from models import count_parameters
 from models.resnet50 import resnet50
+from models.vgg_imagenet import vgg16
 from models.utils import bn_update
 
 torch.backends.cudnn.benchmark = True
@@ -108,7 +109,8 @@ def main():
     parser.add_argument('--warmup', help='warm up epochs', type=int, default=5)
     parser.add_argument('--posterior', help="posterior",
                         action=StoreDictKeyPair, keys=('mean_init', 'std_init'))
-    parser.add_argument('--use_pretrained', action='store_true')
+    parser.add_argument('--pretrained', type=str, default="")
+    parser.add_argument('--start_epoch', type=int, default=0)
     parser.add_argument('--nodes', default=1, type=int, metavar='N',
                         help='number of nodes (default: 1)')
     parser.add_argument('--gpus', default=1, type=int,
@@ -118,12 +120,13 @@ def main():
     parser.add_argument('--workers', default=4, type=int, help='number of data loading workers (default: 4)')
     parser.add_argument('--traindir', default='data/imagenet/train.lmdb', type=str)
     parser.add_argument('--valdir', default='data/imagenet/val.lmdb', type=str)
+    parser.add_argument('--model', default='resnet50', type=str)
     args = parser.parse_args()
     args.world_size = args.gpus * args.nodes
     args.total_batch_size = args.batch_size['train']
     args.batch_size['train'] //= args.world_size
     os.environ['MASTER_ADDR'] = 'localhost'
-    os.environ['MASTER_PORT'] = '8888'
+    os.environ['MASTER_PORT'] = '3658'
     if args.nr == 0:
         os.makedirs(args.root, exist_ok=True)
         print(args)
@@ -180,8 +183,16 @@ def parallel_nll(model, x, y, n_sample):
 
 def get_model(args, gpu, dataloader):
     step_per_epoch = 1281167 // args.total_batch_size
-    model = resnet50(deterministic_pretrained=args.use_pretrained, n_components=args.n_components,
-                     prior_mean=args.prior['mean'], prior_std=args.prior['std'], posterior_mean_init=args.posterior['mean_init'], posterior_std_init=args.posterior['std_init'])
+    if args.model == 'resnet50':
+        model = resnet50(deterministic_pretrained=False, n_components=args.n_components,
+                         prior_mean=args.prior['mean'], prior_std=args.prior['std'], posterior_mean_init=args.posterior['mean_init'], 
+                         posterior_std_init=args.posterior['std_init'])
+    elif args.model == 'vgg16':
+        model = vgg16(False, n_components=args.n_components,
+                      prior_mean=args.prior['mean'], prior_std=args.prior['std'], posterior_mean_init=args.posterior['mean_init'], 
+                      posterior_std_init=args.posterior['std_init'])
+    if args.pretrained != "":
+        print(model.load_state_dict(torch.load(args.pretrained, 'cpu'), strict=False))
     model.cuda(gpu)
     model = nn.SyncBatchNorm.convert_sync_batchnorm(model)
     detp = []
@@ -199,7 +210,10 @@ def get_model(args, gpu, dataloader):
             'params': stop,
             **args.sto_params
         }], **args.sgd_params)
-    scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, [lambda step: schedule(step, step_per_epoch, args.warmup, args.schedule['det']), lambda step: schedule(step, step_per_epoch, args.warmup, args.schedule['sto'])])
+    scheduler = torch.optim.lr_scheduler.LambdaLR(
+        optimizer, 
+        [lambda step: schedule(step, step_per_epoch, args.warmup, args.schedule['det']), 
+         lambda step: schedule(step, step_per_epoch, args.warmup, args.schedule['sto'])])
     model = DDP(model, device_ids=[gpu])
     return model, optimizer, scheduler
 
@@ -261,7 +275,7 @@ def test_nll(model, loader, num_sample):
 
 
 def train(gpu, args, queue):
-    os.environ['CUDA_VISIBLE_DEVICES'] = str(gpu)
+#     os.environ['CUDA_VISIBLE_DEVICES'] = str(gpu)
     worker_configurer(queue)
     rank = args.nr * args.gpus + gpu
     dist.init_process_group(
@@ -276,14 +290,15 @@ def train(gpu, args, queue):
     logger.info(
         f"Train size: {len(train_loader)}, test size: {len(test_loader)}")
     torch.manual_seed(args.seed + rank*123)
-    model, optimizer, scheduler = get_model(args, 0, train_loader)
-    if rank == 0:
+    torch.cuda.set_device(gpu)
+    model, optimizer, scheduler = get_model(args, gpu, train_loader)
+    if rank == 0 and args.start_epoch == 0:
         count_parameters(model, logger)
         logger.info(str(model))
     checkpoint_dir = os.path.join(args.root, 'checkpoint_{}.pt')
     model.train()
     scaler = torch.cuda.amp.GradScaler()
-    for i in range(args.num_epochs):
+    for i in range(args.start_epoch, args.num_epochs):
         train_sampler.set_epoch(i)
         t0 = time.time()
         lls = []
@@ -302,7 +317,7 @@ def train(gpu, args, queue):
             optimizer.zero_grad()
 
             scheduler.step()
-            print("VB Epoch %d: loglike: %.4f, kl: %.4f, kl weight: %.4f, lr1: %.4f, lr2: %.4f" % (i, loglike.item(), kl.item(), klw, optimizer.param_groups[0]['lr'], optimizer.param_groups[1]['lr']))
+            print("VB Epoch %d: loglike: %.4f, kl: %.4f, kl weight: %.4f, lr1: %.4f, lr2: %.4f, time: %.1f" % (i, loglike.item(), kl.item(), klw, optimizer.param_groups[0]['lr'], optimizer.param_groups[1]['lr'], time.time()-t0))
             lls.append(loglike.item())
         t1 = time.time()
         if (i+1) % args.logging_freq == 0:

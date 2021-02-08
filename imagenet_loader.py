@@ -116,7 +116,7 @@ class HybridTrainPipe(Pipeline):
             output_layout=types.NCHW,
             crop=(crop, crop),
             mean=[0.485 * 255, 0.456 * 255, 0.406 * 255] if normalize else [0.0, 0.0, 0.0],
-            std=[0.229 * 255, 0.224 * 255, 0.225 * 255] if normalize else [1.0, 1.0, 1.0],
+            std=[0.229 * 255, 0.224 * 255, 0.225 * 255] if normalize else [255.0, 255.0, 255.0],
         )
         self.coin = ops.CoinFlip(probability=0.5)
 
@@ -173,7 +173,7 @@ class HybridValPipe(Pipeline):
             output_layout=types.NCHW,
             crop=(crop, crop),
             mean=[0.485 * 255, 0.456 * 255, 0.406 * 255] if normalize else [0.0, 0.0, 0.0],
-            std=[0.229 * 255, 0.224 * 255, 0.225 * 255] if normalize else [1.0, 1.0, 1.0],
+            std=[0.229 * 255, 0.224 * 255, 0.225 * 255] if normalize else [255.0, 255.0, 255.0],
         )
 
     def define_graph(self):

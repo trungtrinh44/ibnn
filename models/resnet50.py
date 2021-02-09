@@ -4,7 +4,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.distributions as D
 from typing import Type, Any, Callable, Union, List, Optional
-from .utils import StoLayer, StoConv2d, StoLinear
+from .utils import StoLayer, StoConv2d, StoLinear, EnsembleBatchNorm2d
 from torch.utils.model_zoo import load_url as load_state_dict_from_url
 
 model_urls = {
@@ -49,7 +49,7 @@ class StoBasicBlock(nn.Module):
     ) -> None:
         super(StoBasicBlock, self).__init__()
         if norm_layer is None:
-            norm_layer = nn.BatchNorm2d
+            norm_layer = EnsembleBatchNorm2d
         if groups != 1 or base_width != 64:
             raise ValueError(
                 'BasicBlock only supports groups=1 and base_width=64')
@@ -58,25 +58,25 @@ class StoBasicBlock(nn.Module):
                 "Dilation > 1 not supported in BasicBlock")
         # Both self.conv1 and self.downsample layers downsample the input when stride != 1
         self.conv1 = conv3x3(inplanes, planes, stride, n_components=n_components, prior_mean=prior_mean, prior_std=prior_std, posterior_mean_init=posterior_mean_init, posterior_std_init=posterior_std_init)
-        self.bn1 = norm_layer(planes)
+        self.bn1 = norm_layer(planes, n_components)
         self.relu = nn.ReLU(inplace=True)
         self.conv2 = conv3x3(planes, planes, n_components=n_components, prior_mean=prior_mean, prior_std=prior_std, posterior_mean_init=posterior_mean_init, posterior_std_init=posterior_std_init)
-        self.bn2 = norm_layer(planes)
+        self.bn2 = norm_layer(planes, n_components)
         self.downsample = downsample
         self.stride = stride
 
-    def forward(self, x: Tensor, indices: Tensor) -> Tensor:
+    def forward(self, x: Tensor) -> Tensor:
         identity = x
 
-        out = self.conv1(x, indices)
+        out = self.conv1(x)
         out = self.bn1(out)
         out = self.relu(out)
 
-        out = self.conv2(out, indices)
+        out = self.conv2(out)
         out = self.bn2(out)
 
         if self.downsample is not None:
-            identity = self.downsample(x, indices)
+            identity = self.downsample(x)
 
         out += identity
         out = self.relu(out)
@@ -106,63 +106,40 @@ class StoBottleneck(nn.Module):
     ) -> None:
         super(StoBottleneck, self).__init__()
         if norm_layer is None:
-            norm_layer = nn.BatchNorm2d
+            norm_layer = EnsembleBatchNorm2d
         width = int(planes * (base_width / 64.)) * groups
         # Both self.conv2 and self.downsample layers downsample the input when stride != 1
         self.conv1 = conv1x1(inplanes, width, n_components=n_components, prior_mean=prior_mean, prior_std=prior_std, posterior_mean_init=posterior_mean_init, posterior_std_init=posterior_std_init)
-        self.bn1 = norm_layer(width)
+        self.bn1 = norm_layer(width, n_components)
         self.conv2 = conv3x3(width, width, stride, groups, dilation, n_components=n_components, prior_mean=prior_mean, prior_std=prior_std, posterior_mean_init=posterior_mean_init, posterior_std_init=posterior_std_init)
-        self.bn2 = norm_layer(width)
+        self.bn2 = norm_layer(width, n_components)
         self.conv3 = conv1x1(width, planes * self.expansion, n_components=n_components, prior_mean=prior_mean, prior_std=prior_std, posterior_mean_init=posterior_mean_init, posterior_std_init=posterior_std_init)
-        self.bn3 = norm_layer(planes * self.expansion)
+        self.bn3 = norm_layer(planes * self.expansion, n_components)
         self.relu = nn.ReLU(inplace=True)
         self.downsample = downsample
         self.stride = stride
 
-    def forward(self, x: Tensor, indices: Tensor) -> Tensor:
+    def forward(self, x: Tensor) -> Tensor:
         identity = x
 
-        out = self.conv1(x, indices)
+        out = self.conv1(x)
         out = self.bn1(out)
         out = self.relu(out)
 
-        out = self.conv2(out, indices)
+        out = self.conv2(out)
         out = self.bn2(out)
         out = self.relu(out)
 
-        out = self.conv3(out, indices)
+        out = self.conv3(out)
         out = self.bn3(out)
 
         if self.downsample is not None:
-            identity = self.downsample(x, indices)
+            identity = self.downsample(x)
 
         out += identity
         out = self.relu(out)
 
         return out
-
-class Downsample(nn.Module):
-    def __init__(self, conv, norm):
-        super(Downsample, self).__init__()
-        self.add_module('0', conv)
-        self.add_module('1', norm)
-    
-    def forward(self, x, indices):
-        x = getattr(self, '0')(x, indices)
-        x = getattr(self, '1')(x)
-        return x
-
-class StoSequential(nn.Module):
-    def __init__(self, *args):
-        super(StoSequential, self).__init__()
-        for idx, module in enumerate(args):
-            self.add_module(str(idx), module)
-        self.len = len(args)
-    
-    def forward(self, x, indices):
-        for idx in range(self.len):
-            x = getattr(self, str(idx))(x, indices)
-        return x
 
 class StoResNet(nn.Module):
 
@@ -180,7 +157,7 @@ class StoResNet(nn.Module):
     ) -> None:
         super(StoResNet, self).__init__()
         if norm_layer is None:
-            norm_layer = nn.BatchNorm2d
+            norm_layer = EnsembleBatchNorm2d
         self._norm_layer = norm_layer
         self.n_components = n_components
 
@@ -197,7 +174,7 @@ class StoResNet(nn.Module):
         self.base_width = width_per_group
         self.conv1 = StoConv2d(3, self.inplanes, kernel_size=7, stride=2, padding=3,
                                bias=False, n_components=n_components, prior_mean=prior_mean, prior_std=prior_std, posterior_mean_init=posterior_mean_init, posterior_std_init=posterior_std_init)
-        self.bn1 = norm_layer(self.inplanes)
+        self.bn1 = norm_layer(self.inplanes, n_components)
         self.relu = nn.ReLU(inplace=True)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
         self.layer1 = self._make_layer(block, 64, layers[0], n_components=n_components, prior_mean=prior_mean, prior_std=prior_std, posterior_mean_init=posterior_mean_init, posterior_std_init=posterior_std_init)
@@ -239,14 +216,13 @@ class StoResNet(nn.Module):
         return -logp, self.kl()
     
     def nll(self, x, y, n_sample):
-        indices = torch.empty(x.size(0)*n_sample, dtype=torch.long, device=x.device)
-        prob = torch.cat([self.forward(x, n_sample, indices=torch.full((x.size(0)*n_sample,), idx, out=indices, device=x.device, dtype=torch.long)) for idx in range(self.n_components)], dim=1)
-        logp = D.Categorical(logits=prob).log_prob(y.unsqueeze(1).expand(-1, self.n_components*n_sample))
+        log_prob = self.forward(x, n_sample*self.n_components, False)
+        logp = D.Categorical(logits=log_prob).log_prob(y.unsqueeze(1).expand(-1, self.n_components*n_sample))
         logp = torch.logsumexp(logp, 1) - torch.log(torch.tensor(self.n_components*n_sample, dtype=torch.float32, device=x.device))
-        return -logp.mean(), prob
+        return -logp.mean(), log_prob
 
     def _make_layer(self, block: Type[Union[StoBasicBlock, StoBottleneck]], planes: int, blocks: int,
-                    stride: int = 1, dilate: bool = False, n_components=None, prior_mean=None, prior_std=None, posterior_mean_init=None, posterior_std_init=None) -> StoSequential:
+                    stride: int = 1, dilate: bool = False, n_components=None, prior_mean=None, prior_std=None, posterior_mean_init=None, posterior_std_init=None) -> nn.Sequential:
         norm_layer = self._norm_layer
         downsample = None
         previous_dilation = self.dilation
@@ -254,9 +230,9 @@ class StoResNet(nn.Module):
             self.dilation *= stride
             stride = 1
         if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = Downsample(
+            downsample = nn.Sequential(
                 conv1x1(self.inplanes, planes * block.expansion, stride, n_components=n_components, prior_mean=prior_mean, prior_std=prior_std, posterior_mean_init=posterior_mean_init, posterior_std_init=posterior_std_init),
-                norm_layer(planes * block.expansion),
+                norm_layer(planes * block.expansion, n_components),
             )
 
         layers = []
@@ -268,35 +244,33 @@ class StoResNet(nn.Module):
                                 base_width=self.base_width, dilation=self.dilation,
                                 norm_layer=norm_layer, n_components=n_components, prior_mean=prior_mean, prior_std=prior_std, posterior_mean_init=posterior_mean_init, posterior_std_init=posterior_std_init))
 
-        return StoSequential(*layers)
+        return nn.Sequential(*layers)
 
-    def _forward_impl(self, x: Tensor, L=1, indices=None) -> Tensor:
+    def _forward_impl(self, x: Tensor, L=1) -> Tensor:
         # See note [TorchScript super()]
         if L > 1:
             x = torch.repeat_interleave(x, L, dim=0)
-        if indices is None:
-            indices = torch.arange(x.size(0), dtype=torch.long, device=x.device) % self.n_components
-        x = self.conv1(x, indices)
+        x = self.conv1(x)
         x = self.bn1(x)
         x = self.relu(x)
         x = self.maxpool(x)
 
-        x = self.layer1(x, indices)
-        x = self.layer2(x, indices)
-        x = self.layer3(x, indices)
-        x = self.layer4(x, indices)
+        x = self.layer1(x)
+        x = self.layer2(x)
+        x = self.layer3(x)
+        x = self.layer4(x)
 
         x = self.avgpool(x)
         x = torch.flatten(x, 1)
-        x = F.log_softmax(self.fc(x, indices), dim=-1)
+        x = F.log_softmax(self.fc(x), dim=-1)
 
         x = x.view(-1, L, x.size(1))
         return x
 
-    def forward(self, x: Tensor, L=1, indices=None, return_kl=False) -> Tensor:
+    def forward(self, x: Tensor, L=1, return_kl=False) -> Tensor:
         if return_kl:
-            return self._forward_impl(x, L, indices), self.kl()
-        return self._forward_impl(x, L, indices)
+            return self._forward_impl(x, L), self.kl()
+        return self._forward_impl(x, L)
 
 def _resnet(
     arch: str,

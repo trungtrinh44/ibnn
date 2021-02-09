@@ -21,7 +21,6 @@ from imagenet_loader import ImageFolderLMDB
 from models import count_parameters
 from models.resnet50 import resnet50
 from models.vgg_imagenet import vgg16
-from models.utils import bn_update
 
 torch.backends.cudnn.benchmark = True
 torch.backends.cudnn.deterministic = False
@@ -170,14 +169,9 @@ def vb_loss(model, x, y, n_sample):
 
 def parallel_nll(model, x, y, n_sample):
     n_components = model.module.n_components
-    indices = torch.empty(x.size(0)*n_sample,
-                          dtype=torch.long, device=x.device)
-    prob = torch.cat([model(x, n_sample, indices=torch.full((x.size(0)*n_sample,), idx,
-                                                            out=indices, device=x.device, dtype=torch.long)) for idx in range(n_components)], dim=1)
-    logp = D.Categorical(logits=prob).log_prob(
-        y.unsqueeze(1).expand(-1, n_components*n_sample))
-    logp = torch.logsumexp(logp, 1) - torch.log(torch.tensor(n_components *
-                                                             n_sample, dtype=torch.float32, device=x.device))
+    prob = model(x, n_sample * n_components)
+    logp = D.Categorical(logits=prob).log_prob(y.unsqueeze(1).expand(-1, n_components*n_sample))
+    logp = torch.logsumexp(logp, 1) - torch.log(torch.tensor(n_components * n_sample, dtype=logp.dtype, device=x.device))
     return -logp.mean(), prob
 
 
@@ -297,27 +291,24 @@ def train(gpu, args, queue):
         logger.info(str(model))
     checkpoint_dir = os.path.join(args.root, 'checkpoint_{}.pt')
     model.train()
-    scaler = torch.cuda.amp.GradScaler()
+    scaler = torch.cuda.amp.GradScaler(16384.0)
     for i in range(args.start_epoch, args.num_epochs):
         train_sampler.set_epoch(i)
         t0 = time.time()
         lls = []
+        klw = get_kl_weight(i, args)
         for bx, by in train_loader:
             bx = bx.cuda(non_blocking=True)
             by = by.cuda(non_blocking=True)
             with torch.cuda.amp.autocast():
                 loglike, kl = vb_loss(model, bx, by, args.num_sample['train'])
-                klw = get_kl_weight(i, args)
                 loss = loglike + klw*kl/(n_batch*args.total_batch_size)
             scaler.scale(loss).backward()
             scaler.step(optimizer)
-
             scaler.update()
-            
-            optimizer.zero_grad()
-
             scheduler.step()
-            print("VB Epoch %d: loglike: %.4f, kl: %.4f, kl weight: %.4f, lr1: %.4f, lr2: %.4f, time: %.1f" % (i, loglike.item(), kl.item(), klw, optimizer.param_groups[0]['lr'], optimizer.param_groups[1]['lr'], time.time()-t0))
+            optimizer.zero_grad()
+            print("VB Epoch %d: loglike: %.4f, kl: %.4f, kl weight: %.4f, lr1: %.4f, lr2: %.4f, scale: %.1f, time: %.1f" % (i, loglike.item(), kl.item(), klw, optimizer.param_groups[0]['lr'], optimizer.param_groups[1]['lr'], scaler.get_scale(), time.time()-t0))
             lls.append(loglike.item())
         t1 = time.time()
         if (i+1) % args.logging_freq == 0:

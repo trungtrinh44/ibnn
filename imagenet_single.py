@@ -10,8 +10,6 @@ import torch.distributed as dist
 import torch.distributions as D
 import torch.multiprocessing as mp
 import torch.nn as nn
-import torchvision
-import json
 from torch.nn.parallel import DistributedDataParallel as DDP
 import random
 
@@ -75,8 +73,8 @@ def main():
                         action=StoreDictKeyPair, keys=('mean_init', 'std_init'))
     parser.add_argument('--pretrained', type=str, default='')
     parser.add_argument('--workers', default=4, type=int, help='number of data loading workers (default: 4)')
-    parser.add_argument('--traindir', default='data/imagenet/train.lmdb', type=str)
-    parser.add_argument('--valdir', default='data/imagenet/val.lmdb', type=str)
+    parser.add_argument('--trainshards', default='data/imagenet/shards/imagenet-train-{000000..001279}.tar', type=str)
+    parser.add_argument('--valshards', default='data/imagenet/shards/imagenet-val-{000000..000049}.tar', type=str)
     parser.add_argument('--not_normalize', action='store_true')
     parser.add_argument('--model', default='resnet50', type=str)
     args = parser.parse_args()
@@ -102,16 +100,16 @@ def main():
 def get_kl_weight(epoch, args):
     kl_max = args.kl_weight['kl_max']
     kl_min = args.kl_weight['kl_min']
-    last_iter = args.kl_weight['last_iter']*args.step_per_epoch
+    last_iter = args.kl_weight['last_iter'] #*args.step_per_epoch
     value = (kl_max-kl_min)/last_iter
     return min(kl_max, kl_min + epoch*value)
 
 
 def schedule(step, steps_per_epoch, warm_up, multipliers):
-    lr_epoch = step / steps_per_epoch
+    lr_epoch = step #/ steps_per_epoch
     factor = 1.0
-    if warm_up >= 1:
-        factor = min(1.0, lr_epoch / warm_up)
+#    if warm_up >= 1:
+#        factor = min(1.0, lr_epoch / warm_up)
     for mult, start_epoch in multipliers[::-1]:
         if lr_epoch >= start_epoch:
             return mult
@@ -224,8 +222,7 @@ def test_nll(model, loader, num_sample):
         count = 0
         for bx, by in loader:
             count += bx.size(0)
-            with torch.cuda.amp.autocast():
-                bnll, pred = parallel_nll(model, bx, by, num_sample)
+            bnll, pred = parallel_nll(model, bx, by, num_sample)
             nll += bnll.item() * bx.size(0)
             acc += (pred.exp().mean(1).argmax(-1) == by).sum().item()
             torch.cuda.synchronize()
@@ -245,52 +242,32 @@ def train(args):
         print(str(model))
     checkpoint_dir = os.path.join(args.root, 'checkpoint_{}.pt')
     model.train()
-    scaler = torch.cuda.amp.GradScaler()
-    old_scale = scaler.get_scale()
-    iteration = args.start_epoch
-    if args.start_checkpoint != "":
-        amp_cp = torch.load(args.start_checkpoint)
-        model.module.load_state_dict(amp_cp['model'])
-        scaler.load_state_dict(amp_cp['scaler'])
-        # optimizer.load_state_dict(amp_cp['optimizer'])
-        scheduler.load_state_dict(amp_cp['scheduler'])
+    scaler = torch.cuda.amp.GradScaler(16384.0)
     for i in range(args.start_epoch, args.num_epochs):
         t0 = time.time()
         lls = []
-        for bx, by in train_loader:
-            while True:
-                optimizer.zero_grad()
-                klw = get_kl_weight(iteration, args)
-                with torch.cuda.amp.autocast():
-                    loglike, kl = vb_loss(model, bx, by, args.num_sample['train'])
-                    loss = loglike + klw*kl/1281167
-                scaler.scale(loss).backward()
-                scaler.step(optimizer)
-                scaler.update()
-                new_scale = scaler.get_scale()
-                scheduler.step()
-                if new_scale >= old_scale:
-                    old_scale = new_scale
-                    break
-                else:
-                    old_scale = new_scale
-            iteration += 1
-            print("VB Epoch %d: loglike: %.4f, kl: %.4f, kl weight: %.4f, lr1: %.4f, lr2: %.4f, scale: %.1f, time: %.2f" % (i, loglike.item(), kl.item(), klw, optimizer.param_groups[0]['lr'], optimizer.param_groups[1]['lr'], scaler.get_scale(), time.time()-t0))
+        klw = get_kl_weight(i, args)
+        for iteration, (bx, by) in enumerate(train_loader):
+            bx = bx.cuda(non_blocking=True)
+            by = by.cuda(non_blocking=True)
+            optimizer.zero_grad()
+            with torch.cuda.amp.autocast():
+                loglike, kl = vb_loss(model, bx, by, args.num_sample['train'])
+                loss = loglike + klw*kl/1280000
+            scaler.scale(loss).backward() #.backward()
+            scaler.step(optimizer) #.step()
+            scaler.update()
+            print("VB Epoch %03d-%04d: batch size: %2d, loglike: %.4f, kl: %.4f, kl weight: %.4f, lr1: %.4f, lr2: %.4f, scale: %.2f, time: %.2f" % (i, iteration, bx.size(0), loglike.item(), kl.item(), klw, optimizer.param_groups[0]['lr'], optimizer.param_groups[1]['lr'], scaler.get_scale(), time.time()-t0))
             lls.append(loglike.item())
             torch.cuda.synchronize()
+        scheduler.step()
         t1 = time.time()
         if (i+1) % args.logging_freq == 0:
             print("VB Epoch %d: loglike: %.4f, kl: %.4f, kl weight: %.4f, lr1: %.4f, lr2: %.4f, time: %.1f" % (i, np.mean(lls).item(), kl.item(), klw, optimizer.param_groups[0]['lr'], optimizer.param_groups[1]['lr'], t1-t0))
         if (i+1) % args.test_freq == 0:
             if args.rank == 0:
-                # amp_cp = { 
-                #     'model': model.module.state_dict(), 
-                #     'scaler': scaler.state_dict(), 
-                #     'optimizer': optimizer.state_dict(), 
-                #     'scheduler': scheduler.state_dict() 
-                # }
-                amp_cp = model.module.state_dict()
-                torch.save(amp_cp, checkpoint_dir.format(str(i)))
+#                amp_cp = { 'model': model.module.state_dict(), 'scaler': scaler.state_dict(), 'optimizer': optimizer.state_dict(), 'scheduler': scheduler.state_dict() }
+                torch.save(model.module.state_dict(), checkpoint_dir.format(str(i)))
                 print('Save checkpoint')
             nll, acc = test_nll(model, test_loader,
                                 args.num_sample['test'])

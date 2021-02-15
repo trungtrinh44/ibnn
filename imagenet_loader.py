@@ -243,7 +243,7 @@ def get_dali_train_loader(dali_cpu=False):
 
         pipe.build()
         train_loader = DALIClassificationIterator(
-            pipe, reader_name='Train_reader', last_batch_policy=LastBatchPolicy.FILL
+            pipe, reader_name='Train_reader', last_batch_policy=LastBatchPolicy.PARTIAL
         )
 
         return (

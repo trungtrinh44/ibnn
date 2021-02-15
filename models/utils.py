@@ -46,15 +46,11 @@ class StoLayer(object):
         return det_model
     
     @staticmethod
-    def get_mask(mean, std, index, sample=False):
+    def get_mask(mean, index):
         if index == 'ones':
             return torch.ones(mean.shape[1:], device=mean.device)
         if index == 'mean':
             return mean.mean(dim=0)
-        if sample:
-            mean = mean[index]
-            std = std[index]
-            return D.Normal(mean, std).sample()
         return mean[index]
     
     def to_det_module(self, index):
@@ -81,26 +77,24 @@ class StoLayer(object):
         self.posterior_std_init = posterior_std_init
         self.__aux_dim = in_features[1:]
     
-    def get_mult_noise(self, input):
+    def get_mult_noise(self, input, indices):
         mean = self.posterior_U_mean
         std = F.softplus(self.posterior_U_std)
-        components = D.Normal(mean, std)
-        noise = components.rsample((input.size(0)//mean.size(0), ))
-        return noise.view(-1, *noise.shape[2:])
+        components = D.Normal(mean[indices], std[indices])
+        return components.rsample()
     
-    def get_add_noise(self, input):
+    def get_add_noise(self, input, indices):
         mean = self.posterior_B_mean
         std = F.softplus(self.posterior_B_std)
-        components = D.Normal(mean, std)
-        noise = components.rsample((input.size(0)//mean.size(0), ))
-        return noise.view(-1, *noise.shape[2:])
+        components = D.Normal(mean[indices], std[indices])
+        return components.rsample()
 
-    def mult_noise(self, x):
-        x = x * self.get_mult_noise(x)
+    def mult_noise(self, x, indices):
+        x = x * self.get_mult_noise(x, indices)
         return x
 
-    def add_bias(self, x):
-        x = x + self.bias.view(-1, *self.__aux_dim) * self.get_add_noise(x)
+    def add_bias(self, x, indices):
+        x = x + self.bias.view(-1, *self.__aux_dim) * self.get_add_noise(x, indices)
         return x
     
     def kl(self):
@@ -108,25 +102,13 @@ class StoLayer(object):
     
     def _kl(self, pos_mean, pos_std):
         mean = pos_mean.mean(dim=0)
-        std = F.softplus(pos_std).square().sum(0).sqrt() / pos_std.size(0)
+        std = F.softplus(pos_std).pow(2.0).sum(0).pow(0.5) / pos_std.size(0)
         components = D.Normal(mean, std)
         prior = D.Normal(self.prior_mean, self.prior_std)
         return D.kl_divergence(components, prior).sum()
     
     def sto_extra_repr(self):
         return f"n_components={self.posterior_U_mean.size(0)}, prior_mean={self.prior_mean.data.item()}, prior_std={self.prior_std.data.item()}, posterior_mean_init={self.posterior_mean_init}, posterior_std_init={self.posterior_std_init}"
-
-class EnsembleBatchNorm2d(nn.Module):
-    def __init__(self, num_features, n_components, eps=1e-5, momentum=0.1,
-                 affine=True, track_running_stats=True):
-        super(EnsembleBatchNorm2d, self).__init__()
-        self.n_components = n_components
-        self.bn = nn.BatchNorm2d(n_components * num_features, eps, momentum, affine, track_running_stats)
-    
-    def forward(self, input):
-        output = input.view(-1, self.n_components*input.shape[1], *input.shape[2:])
-        output = self.bn(output)
-        return output.view(*input.shape)
 
 class StoConv2d(nn.Conv2d, StoLayer):
     def __init__(
@@ -144,20 +126,19 @@ class StoConv2d(nn.Conv2d, StoLayer):
         return F.conv2d(x, self.weight, None, self.stride,
                         self.padding, self.dilation, self.groups)
     
-    def forward(self, x):
-        x = self.mult_noise(x)
+    def forward(self, x, indices):
+        x = self.mult_noise(x, indices)
         x = self._conv_forward(x)
         if self.bias is not None:
-            x = self.add_bias(x)
+            x = self.add_bias(x, indices)
         return x
     
-    def to_det_module(self, index, sample=False):
-        new_module = nn.Conv2d(self.in_channels, self.out_channels, self.kernel_size, self.stride, self.padding, 
-                               self.dilation, self.groups, self.bias is not None, self.padding_mode)
-        U_mask = StoLayer.get_mask(self.posterior_U_mean, F.softplus(self.posterior_U_std), index, sample)
+    def to_det_module(self, index):
+        new_module = nn.Conv2d(self.in_channels, self.out_channels, self.kernel_size, self.stride, self.padding, self.dilation, self.groups, self.bias is not None, self.padding_mode)
+        U_mask = StoLayer.get_mask(self.posterior_U_mean, index)
         new_module.weight.data = self.weight.data * U_mask
         if self.bias is not None:
-            B_mask = StoLayer.get_mask(self.posterior_B_mean, F.softplus(self.posterior_B_std), index, sample).squeeze()
+            B_mask = StoLayer.get_mask(self.posterior_B_mean, index).squeeze()
             new_module.bias.data = self.bias.data * B_mask
         return new_module
 
@@ -172,19 +153,19 @@ class StoLinear(nn.Linear, StoLayer):
         super(StoLinear, self).__init__(in_features, out_features, bias)
         self.sto_init((in_features, ), n_components, prior_mean, prior_std, posterior_mean_init, posterior_std_init)
 
-    def forward(self, x):
-        x = self.mult_noise(x)
+    def forward(self, x, indices):
+        x = self.mult_noise(x, indices)
         x = F.linear(x, self.weight, None)
         if self.bias is not None:
-            x = self.add_bias(x)
+            x = self.add_bias(x, indices)
         return x
 
     def to_det_module(self, index):
         new_module = nn.Linear(self.in_features, self.out_features, self.bias is not None)
-        U_mask = StoLayer.get_mask(self.posterior_U_mean, F.softplus(self.posterior_U_std), index, sample)
+        U_mask = StoLayer.get_mask(self.posterior_U_mean, index)
         new_module.weight.data = self.weight.data * U_mask
         if self.bias is not None:
-            B_mask = StoLayer.get_mask(self.posterior_B_mean, F.softplus(self.posterior_B_std), index, sample).squeeze()
+            B_mask = StoLayer.get_mask(self.posterior_B_mean, index).squeeze()
             new_module.bias.data = self.bias.data * B_mask
         return new_module
 

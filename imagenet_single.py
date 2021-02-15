@@ -19,8 +19,8 @@ from imagenet_loader import get_dali_train_loader, get_dali_val_loader
 from models import count_parameters
 from models.resnet50 import resnet50
 from models.vgg_imagenet import vgg16
-torch.backends.cudnn.benchmark = True
-torch.backends.cudnn.deterministic = False
+torch.backends.cudnn.benchmark = False
+torch.backends.cudnn.deterministic = True
 END_MSG = "PROCESS_END"
 
 
@@ -120,17 +120,22 @@ def schedule(step, steps_per_epoch, warm_up, multipliers):
 
 
 def vb_loss(model, x, y, n_sample):
-    y = torch.repeat_interleave(y, n_sample, 0)
+    y = y.unsqueeze(1).expand(-1, n_sample)
     logits, kl = model(x, n_sample, return_kl=True)
-    logp = torch.nn.functional.nll_loss(logits.view(-1, logits.size(2)), y)
-    return logp, kl
+    logp = D.Categorical(logits=logits).log_prob(y).mean()
+    return -logp, kl
 
 
 def parallel_nll(model, x, y, n_sample):
     n_components = model.module.n_components
-    prob = model(x, n_sample * n_components)
-    logp = D.Categorical(logits=prob).log_prob(y.unsqueeze(1).expand(-1, n_components*n_sample))
-    logp = torch.logsumexp(logp, 1) - torch.log(torch.tensor(n_components * n_sample, dtype=logp.dtype, device=x.device))
+    indices = torch.empty(x.size(0)*n_sample,
+                          dtype=torch.long, device=x.device)
+    prob = torch.cat([model(x, n_sample, indices=torch.full((x.size(0)*n_sample,), idx,
+                                                            out=indices, device=x.device, dtype=torch.long)) for idx in range(n_components)], dim=1)
+    logp = D.Categorical(logits=prob).log_prob(
+        y.unsqueeze(1).expand(-1, n_components*n_sample))
+    logp = torch.logsumexp(logp, 1) - torch.log(torch.tensor(n_components *
+                                                             n_sample, dtype=torch.float32, device=x.device))
     return -logp.mean(), prob
 
 
@@ -247,7 +252,7 @@ def train(args):
         amp_cp = torch.load(args.start_checkpoint)
         model.module.load_state_dict(amp_cp['model'])
         scaler.load_state_dict(amp_cp['scaler'])
-        optimizer.load_state_dict(amp_cp['optimizer'])
+        # optimizer.load_state_dict(amp_cp['optimizer'])
         scheduler.load_state_dict(amp_cp['scheduler'])
     for i in range(args.start_epoch, args.num_epochs):
         t0 = time.time()
@@ -278,7 +283,13 @@ def train(args):
             print("VB Epoch %d: loglike: %.4f, kl: %.4f, kl weight: %.4f, lr1: %.4f, lr2: %.4f, time: %.1f" % (i, np.mean(lls).item(), kl.item(), klw, optimizer.param_groups[0]['lr'], optimizer.param_groups[1]['lr'], t1-t0))
         if (i+1) % args.test_freq == 0:
             if args.rank == 0:
-                amp_cp = { 'model': model.module.state_dict(), 'scaler': scaler.state_dict(), 'optimizer': optimizer.state_dict(), 'scheduler': scheduler.state_dict() }
+                # amp_cp = { 
+                #     'model': model.module.state_dict(), 
+                #     'scaler': scaler.state_dict(), 
+                #     'optimizer': optimizer.state_dict(), 
+                #     'scheduler': scheduler.state_dict() 
+                # }
+                amp_cp = model.module.state_dict()
                 torch.save(amp_cp, checkpoint_dir.format(str(i)))
                 print('Save checkpoint')
             nll, acc = test_nll(model, test_loader,

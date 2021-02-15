@@ -11,7 +11,7 @@ import torch.nn.functional as F
 import torch.distributions as D
 import torch.nn.init as init
 
-from .utils import StoLayer, StoLinear, StoConv2d, BayesianLayer, BayesianConv2d, BayesianLinear, EnsembleBatchNorm2d
+from .utils import StoLayer, StoLinear, StoConv2d, BayesianLayer, BayesianConv2d, BayesianLinear
 
 __all__ = ["DetWideResNet28x10", "StoWideResNet28x10", "BayesianWideResNet28x10"]
 
@@ -78,22 +78,24 @@ class BayesianWideBasic(nn.Module):
         return out
 
 class StoWideBasic(nn.Module):
+    def __dummy_shortcut(self, x, i):
+        return x
 
     def __init__(self, in_planes, planes, stride, n_components, prior_mean, prior_std, posterior_mean_init, posterior_std_init):
         super(StoWideBasic, self).__init__()
-        self.bn1 = EnsembleBatchNorm2d(in_planes, n_components)
+        self.bn1 = nn.BatchNorm2d(in_planes)
         self.conv1 = StoConv2d(in_planes, planes, kernel_size=3, padding=1, bias=True, n_components=n_components, prior_mean=prior_mean, prior_std=prior_std, posterior_mean_init=posterior_mean_init, posterior_std_init=posterior_std_init)
-        self.bn2 = EnsembleBatchNorm2d(planes, n_components)
+        self.bn2 = nn.BatchNorm2d(planes)
         self.conv2 = StoConv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=True, n_components=n_components, prior_mean=prior_mean, prior_std=prior_std, posterior_mean_init=posterior_mean_init, posterior_std_init=posterior_std_init)
         if stride != 1 or in_planes != planes:
             self.shortcut = StoConv2d(in_planes, planes, kernel_size=1, stride=stride, bias=True, n_components=n_components, prior_mean=prior_mean, prior_std=prior_std, posterior_mean_init=posterior_mean_init, posterior_std_init=posterior_std_init)
         else:
-            self.shortcut = nn.Identity()
+            self.shortcut = self.__dummy_shortcut
 
-    def forward(self, x):
-        out = self.conv1(F.relu(self.bn1(x), inplace=True))
-        out = self.conv2(F.relu(self.bn2(out), inplace=True))
-        out += self.shortcut(x)
+    def forward(self, x, indices):
+        out = self.conv1(F.relu(self.bn1(x), inplace=True), indices)
+        out = self.conv2(F.relu(self.bn2(out), inplace=True), indices)
+        out += self.shortcut(x, indices)
 
         return out
     
@@ -153,7 +155,7 @@ class StoWideResNet(nn.Module):
         self.layer1 = self._wide_layer(StoWideBasic, nstages[1], n, n_components, prior_mean, prior_std, stride=1, posterior_mean_init=posterior_mean_init, posterior_std_init=posterior_std_init)
         self.layer2 = self._wide_layer(StoWideBasic, nstages[2], n, n_components, prior_mean, prior_std, stride=2, posterior_mean_init=posterior_mean_init, posterior_std_init=posterior_std_init)
         self.layer3 = self._wide_layer(StoWideBasic, nstages[3], n, n_components, prior_mean, prior_std, stride=2, posterior_mean_init=posterior_mean_init, posterior_std_init=posterior_std_init)
-        self.bn1 = EnsembleBatchNorm2d(nstages[3], n_components, momentum=0.9)
+        self.bn1 = nn.BatchNorm2d(nstages[3], momentum=0.9)
         self.linear = StoLinear(nstages[3], num_classes, n_components=n_components, prior_mean=prior_mean, prior_std=prior_std, posterior_mean_init=posterior_mean_init, posterior_std_init=posterior_std_init)
         self.n_components = n_components
         self.sto_modules = [
@@ -168,19 +170,24 @@ class StoWideResNet(nn.Module):
             layers.append(block(self.in_planes, planes, stride, n_components, prior_mean, prior_std, posterior_mean_init=posterior_mean_init, posterior_std_init=posterior_std_init))
             self.in_planes = planes
 
-        return nn.Sequential(*layers)
+        return nn.ModuleList(layers)
 
-    def forward(self, x, L=1, return_kl=False):
+    def forward(self, x, L=1, indices=None, return_kl=False):
         if L > 1:
             x = torch.repeat_interleave(x, L, dim=0)
-        out = self.conv1(x)
-        out = self.layer1(out)
-        out = self.layer2(out)
-        out = self.layer3(out)
+        if indices is None:
+            indices = torch.arange(x.size(0), dtype=torch.long, device=x.device) % self.n_components
+        out = self.conv1(x, indices)
+        for layer in self.layer1:
+            out = layer(out, indices)
+        for layer in self.layer2:
+            out = layer(out, indices)
+        for layer in self.layer3:
+            out = layer(out, indices)
         out = F.relu(self.bn1(out), inplace=True)
         out = F.avg_pool2d(out, 8)
         out = out.view(out.size(0), -1)
-        out = F.log_softmax(self.linear(out), -1)
+        out = F.log_softmax(self.linear(out, indices), -1)
         out = out.view(-1, L, out.size(1))
         if return_kl:
             return out, self.kl()
@@ -195,10 +202,11 @@ class StoWideResNet(nn.Module):
         return -logp, self.kl()
     
     def nll(self, x, y, n_sample):
-        log_prob = self.forward(x, n_sample*self.n_components)
-        logp = D.Categorical(logits=log_prob).log_prob(y.unsqueeze(1).expand(-1, self.n_components*n_sample))
-        logp = torch.logsumexp(logp, 1) - torch.log(torch.tensor(self.n_components*n_sample, dtype=logp.dtype, device=x.device))
-        return -logp.mean(), log_prob
+        indices = torch.empty(x.size(0)*n_sample, dtype=torch.long, device=x.device)
+        prob = torch.cat([self.forward(x, n_sample, indices=torch.full((x.size(0)*n_sample,), idx, out=indices, device=x.device, dtype=torch.long)) for idx in range(self.n_components)], dim=1)
+        logp = D.Categorical(logits=prob).log_prob(y.unsqueeze(1).expand(-1, self.n_components*n_sample))
+        logp = torch.logsumexp(logp, 1) - torch.log(torch.tensor(self.n_components*n_sample, dtype=torch.float32, device=x.device))
+        return -logp.mean(), prob
 
 class BayesianWideResNet(nn.Module):
     def __init__(self, num_classes=10, depth=28, widen_factor=10, prior_mean=0.0, prior_std=1.0):

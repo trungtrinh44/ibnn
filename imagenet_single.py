@@ -234,7 +234,7 @@ def test_nll(model, loader, num_sample):
 def train(args):
     print('Get data loader')
     train_loader, test_loader, train_loader_len, test_loader_len = get_dataloader(args)
-    args.step_per_epoch = n_batch = math.ceil(1281167/args.total_batch_size)
+    args.step_per_epoch = n_batch = 1281167//args.total_batch_size
     print(f"Train size: {n_batch}, test size: {test_loader_len}")
     model, optimizer, scheduler = get_model(args)
     if args.rank == 0:
@@ -253,7 +253,7 @@ def train(args):
             optimizer.zero_grad()
             with torch.cuda.amp.autocast():
                 loglike, kl = vb_loss(model, bx, by, args.num_sample['train'])
-                loss = loglike + klw*kl/1280000
+                loss = loglike + klw*kl/n_batch/args.total_batch_size
             scaler.scale(loss).backward() #.backward()
             scaler.step(optimizer) #.step()
             scaler.update()

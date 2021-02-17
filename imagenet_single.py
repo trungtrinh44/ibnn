@@ -17,8 +17,8 @@ from imagenet_loader import get_dali_train_loader, get_dali_val_loader
 from models import count_parameters
 from models.resnet50 import resnet50
 from models.vgg_imagenet import vgg16
-torch.backends.cudnn.benchmark = False
-torch.backends.cudnn.deterministic = True
+torch.backends.cudnn.benchmark = True
+torch.backends.cudnn.deterministic = False
 END_MSG = "PROCESS_END"
 
 
@@ -106,10 +106,10 @@ def get_kl_weight(epoch, args):
 
 
 def schedule(step, steps_per_epoch, warm_up, multipliers):
-    lr_epoch = step #/ steps_per_epoch
+    lr_epoch = step / steps_per_epoch
     factor = 1.0
-#    if warm_up >= 1:
-#        factor = min(1.0, lr_epoch / warm_up)
+    if warm_up >= 1:
+        factor = min(1.0, lr_epoch / warm_up)
     for mult, start_epoch in multipliers[::-1]:
         if lr_epoch >= start_epoch:
             return mult
@@ -257,10 +257,10 @@ def train(args):
             scaler.scale(loss).backward() #.backward()
             scaler.step(optimizer) #.step()
             scaler.update()
+            scheduler.step()
             print("VB Epoch %03d-%04d: batch size: %2d, loglike: %.4f, kl: %.4f, kl weight: %.4f, lr1: %.4f, lr2: %.4f, scale: %.2f, time: %.2f" % (i, iteration, bx.size(0), loglike.item(), kl.item(), klw, optimizer.param_groups[0]['lr'], optimizer.param_groups[1]['lr'], scaler.get_scale(), time.time()-t0))
             lls.append(loglike.item())
             torch.cuda.synchronize()
-        scheduler.step()
         t1 = time.time()
         if (i+1) % args.logging_freq == 0:
             print("VB Epoch %d: loglike: %.4f, kl: %.4f, kl weight: %.4f, lr1: %.4f, lr2: %.4f, time: %.1f" % (i, np.mean(lls).item(), kl.item(), klw, optimizer.param_groups[0]['lr'], optimizer.param_groups[1]['lr'], t1-t0))

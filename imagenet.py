@@ -201,16 +201,16 @@ def get_model(args, gpu, dataloader):
             detp.append(param)
     optimizer = torch.optim.SGD(
         [{
-            'params': detp,
+            'params': detp, 'initial_lr': args.det_params['lr'],
             **args.det_params
         }, {
-            'params': stop,
+            'params': stop, 'initial_lr': args.sto_params['lr'],
             **args.sto_params
         }], **args.sgd_params)
     scheduler = torch.optim.lr_scheduler.LambdaLR(
-        optimizer, 
-        [lambda step: schedule(step, step_per_epoch, args.warmup, args.schedule['det']), 
-         lambda step: schedule(step, step_per_epoch, args.warmup, args.schedule['sto'])])
+        optimizer,
+        [lambda step: schedule(step, step_per_epoch, args.warmup, args.schedule['det']),
+         lambda step: schedule(step, step_per_epoch, args.warmup, args.schedule['sto'])], last_epoch=args.start_epoch*step_per_epoch if args.start_epoch > 0 else -1)
     model = DDP(model, device_ids=[gpu])
     return model, optimizer, scheduler
 

@@ -81,14 +81,18 @@ class StoLayer(object):
     def get_mult_noise(self, input, indices):
         mean = self.posterior_U_mean
         std = F.softplus(self.posterior_U_std)
-        components = D.Normal(mean[indices], std[indices])
-        return components.rsample()
+        noise = torch.randn_like(input)
+        samples = mean[indices] + std[indices] * noise
+        return samples
     
     def get_add_noise(self, input, indices):
         mean = self.posterior_B_mean
         std = F.softplus(self.posterior_B_std)
-        components = D.Normal(mean[indices], std[indices])
-        return components.rsample()
+        shape = list(input.shape)
+        shape[1] = 1
+        noise = torch.randn(shape, device=input.device)
+        samples = mean[indices] + std[indices] * noise
+        return samples
 
     def mult_noise(self, x, indices):
         x = x * self.get_mult_noise(x, indices)

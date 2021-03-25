@@ -81,14 +81,16 @@ class StoLayer(object):
     def get_mult_noise(self, input, indices):
         mean = self.posterior_U_mean
         std = F.softplus(self.posterior_U_std)
-        components = D.Normal(mean[indices], std[indices])
-        return components.rsample()
+        noise = input.new(indices.size(0), *self.posterior_U_mean.shape[1:]).normal_(0, 1)
+        sample = self._U_sample = noise*std[indices] + mean[indices]
+        return sample
     
     def get_add_noise(self, input, indices):
         mean = self.posterior_B_mean
         std = F.softplus(self.posterior_B_std)
-        components = D.Normal(mean[indices], std[indices])
-        return components.rsample()
+        noise = input.new(indices.size(0), *self.posterior_B_mean.shape[1:]).normal_(0, 1)
+        sample = self._B_sample = noise*std[indices] + mean[indices]
+        return sample
 
     def mult_noise(self, x, indices):
         x = x * self.get_mult_noise(x, indices)
@@ -99,14 +101,18 @@ class StoLayer(object):
         return x
     
     def kl(self):
-        return self._kl(self.posterior_U_mean, self.posterior_U_std) + (0 if self.bias is None else self._kl(self.posterior_B_mean, self.posterior_B_std))
+        return self._kl(self.posterior_U_mean, self.posterior_U_std, self._U_sample) + (0 if self.bias is None else self._kl(self.posterior_B_mean, self.posterior_B_std, self._B_sample))
     
-    def _kl(self, pos_mean, pos_std):
-        mean = pos_mean.mean(dim=0)
-        std = F.softplus(pos_std).pow(2.0).sum(0).pow(0.5) / pos_std.size(0)
+    def _kl(self, pos_mean, pos_std, pos_sample):
+        mean = pos_mean
+        std = F.softplus(pos_std)
+        # cross entropy
         components = D.Normal(mean, std)
         prior = D.Normal(self.prior_mean, self.prior_std)
-        return D.kl_divergence(components, prior).sum()
+        cross_ent = (D.kl_divergence(components, prior) + components.entropy()).mean(0).sum()
+        # entropy
+        ent = prior.log_prob(pos_sample).mean(0).sum()
+        return cross_ent - ent
     
     def sto_extra_repr(self):
         return f"n_components={self.posterior_U_mean.size(0)}, prior_mean={self.prior_mean.data.item()}, prior_std={self.prior_std.data.item()}, posterior_mean_init={self.posterior_mean_init}, posterior_std_init={self.posterior_std_init}"

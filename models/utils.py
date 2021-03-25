@@ -111,8 +111,9 @@ class StoLayer(object):
         prior = D.Normal(self.prior_mean, self.prior_std)
         cross_ent = (D.kl_divergence(components, prior) + components.entropy()).mean(0).sum()
         # entropy
-        ent = prior.log_prob(pos_sample).mean(0).sum()
-        return cross_ent - ent
+        neg_ent = torch.logsumexp(components.log_prob(pos_sample.unsqueeze(1)), dim=1) - torch.log(torch.tensor(mean.size(0), dtype=mean.dtype, device=mean.device))
+        neg_ent = neg_ent.mean(0).sum()
+        return cross_ent + neg_ent
     
     def sto_extra_repr(self):
         return f"n_components={self.posterior_U_mean.size(0)}, prior_mean={self.prior_mean.data.item()}, prior_std={self.prior_std.data.item()}, posterior_mean_init={self.posterior_mean_init}, posterior_std_init={self.posterior_std_init}"
